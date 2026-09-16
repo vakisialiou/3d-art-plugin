@@ -1,28 +1,36 @@
-# 3d-art-plugin
+# 🧩 3d-art-plugin
 
-Blender addon that exports objects as glTF (one small `.glb` per object) and
-sends them to `3d-art-api` over Socket.IO, for live preview in `3d-art-web` —
-geometry, materials, and textures included, with object hierarchy resolved by
-id/parentId on the browser side. See the architecture doc in the `3d-art`
-repo for the full sync strategy and why it's per-object rather than a
-whole-scene blob (short version: a single 4k PBR material blew a whole-scene
-export up to 90MB and broke the transport).
+Аддон Blender проекта [3d-art](../README.md) — читает текущую сцену и отправляет её в [3d-art-api](../3d-art-api) по socket.io для живого превью в [3d-art-web](../3d-art-web). Собран для Blender 5.2.1, только стандартная библиотека Python (`urllib`) — pip внутри Blender не нужен.
 
-Built for Blender 5.2.1. Uses only the Python standard library (`urllib`) —
-no pip install needed inside Blender.
+## 📦 Что делает и за что отвечает
 
-## Install
+- 📤 Экспортирует объекты как glTF — один маленький `.glb` на объект (геометрия, материалы, текстуры), не всю сцену целиком одним блобом.
+- 🌳 Иерархия объектов резолвится на стороне браузера по `id`/`parentId`.
+- ☀️ Отдельные каналы синка: сцена/объекты, небо (World/Sky), свет, настройки рендера — каждый своей кнопкой.
+- 🖼️ `blender/` — небольшие демо-сцены для проверки синка (не код аддона).
 
-1. `art3d_sync.zip` in this folder is the packaged addon (rebuild it with
-   `zip -r art3d_sync.zip art3d_sync` if you change the source).
-2. In Blender: Edit → Preferences → Add-ons → Install from Disk… → select
-   `art3d_sync.zip` → enable the "3D Art Sync" checkbox. **After updating the
-   zip, fully restart Blender** — an already-running session can keep the old
-   Python modules cached even after the files on disk change.
-3. In the 3D Viewport, open the sidebar (press `N`) → "3D Art" tab → click
-   **Send Selected** (selection + its ancestors) or **Send All** (whole scene).
+## 🔧 Установка
 
-## Configuration
+1. `art3d_sync.zip` в этой папке — упакованный аддон.
+2. В Blender: Edit → Preferences → Add-ons → Install from Disk… → выбрать `art3d_sync.zip` → включить чекбокс "3D Art Sync".
+3. **После обновления zip — полностью перезапустить Blender.** Уже запущенная сессия может держать старые Python-модули в кэше даже после изменения файлов на диске.
+4. В 3D Viewport открыть сайдбар (`N`) → вкладка "3D Art" → **Send Selected** / **Send All** / **Send Sky** / **Send Lighting** / **Send Render Settings**.
 
-The API URL is hardcoded in `art3d_sync/operators.py` as `SERVER_URL`
-(default `http://localhost:3000`, matching `3d-art-api`'s default port).
+## ⚙️ Пересборка после изменений (обязательно)
+
+```bash
+rm -f art3d_sync.zip && zip -r art3d_sync.zip art3d_sync -x "*.pyc" -x "__pycache__/*"
+```
+
+Установленная копия не обновляется сама — без пересборки и перезапуска Blender изменения не подхватятся.
+
+## 🌐 Конфигурация
+
+URL API захардкожен в `art3d_sync/constants.py` (`SERVER_URL`, по умолчанию `http://localhost:3000` — порт `3d-art-api` по умолчанию).
+
+## 📚 Документация
+
+- [`CLAUDE.md`](CLAUDE.md) — конвенции этого репозитория, дисциплина пересборки
+- [`docs/file-structure.md`](docs/file-structure.md) — аннотированное дерево `art3d_sync/`
+- [`../CLAUDE.md`](../CLAUDE.md) — архитектура всего проекта
+- [`../docs/sync-protocol.md`](../docs/sync-protocol.md) — формат payload'ов, которые собирает этот аддон

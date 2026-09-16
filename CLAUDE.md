@@ -1,6 +1,6 @@
 # 3d-art-plugin
 
-Blender addon (Python, `bpy`) that reads the current scene and streams it to `3d-art-api` over socket.io. Cross-repo architecture, product vision, shared Key Principles (KISS/DRY, naming length, "ask don't pick silently", etc.): `../3d-art-web/CLAUDE.md` — that repo is the documentation hub for all three repos. This file covers only what's unique to this repo.
+Blender addon (Python, `bpy`) that reads the current scene and streams it to `3d-art-api` over socket.io. Cross-repo architecture, product vision, shared Key Principles (KISS/DRY, naming length, "ask don't pick silently", etc.): `../CLAUDE.md` — that repo is the documentation hub for all three repos. This file covers only what's unique to this repo.
 
 ## Structure
 
@@ -17,7 +17,7 @@ Blender addon (Python, `bpy`) that reads the current scene and streams it to `3d
 - `render_settings_operators.py` + `render_settings_sync.py` — render settings (`ART3D_OT_send_render_settings`)
 - `socket_client.py` — stdlib-only Engine.IO/Socket.IO v4 polling client (no pip install — Blender's bundled Python has neither `python-socketio` nor `websocket-client`)
 
-Full annotated tree: `../docs/file-structure.md`.
+Full annotated tree: `docs/file-structure.md`.
 
 ## Critical Discipline
 
@@ -40,6 +40,7 @@ An already-running Blender session can have old modules cached in `sys.modules` 
 
 | File | Load it when… |
 |---|---|
-| `../3d-art-web/docs/sync-protocol.md` | the wire payload shapes this plugin builds |
-| `../3d-art-web/docs/tech-decisions.md` | current sync-protocol facts (per-object export, no axis conversion, quaternions, etc.) |
-| `../3d-art-web/CLAUDE.md` | cross-repo architecture, product vision, Tech Stack, shared principles |
+| `docs/file-structure.md` | navigating this repo's `art3d_sync/` |
+| `../docs/sync-protocol.md` | the wire payload shapes this plugin builds |
+| `../docs/tech-decisions.md` | current sync-protocol facts (per-object export, no axis conversion, quaternions, etc.) |
+| `../CLAUDE.md` | cross-repo architecture, product vision, Tech Stack, shared principles |
