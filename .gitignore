@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+art3d_sync.zip
+
+# Blender backup files — noise, not the actual demo content
+*.blend1
+*.blend2
+*.blend~

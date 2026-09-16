@@ -1,0 +1,10 @@
+art3d_sync.zip
+
+# Blender demo-asset binaries — not meaningful as text/context
+blender/**/*.blend1
+blender/**/*.blend2
+blender/**/*.blend~
+blender/**/*.exr
+blender/**/*.png
+blender/**/*.jpg
+blender/**/*.zip
