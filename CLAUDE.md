@@ -21,17 +21,11 @@ Full annotated tree: `docs/file-structure.md`.
 
 ## Critical Discipline
 
-**Rebuild `art3d_sync.zip` immediately after any source change, and restart Blender after reinstalling — never trust a hot-reinstall.**
-
-```bash
-rm -f art3d_sync.zip && zip -r art3d_sync.zip art3d_sync -x "*.pyc" -x "__pycache__/*"
-```
-
-An already-running Blender session can have old modules cached in `sys.modules` even after the files on disk change — a stale installed copy silently reintroduces bugs that look like regressions.
+**Rebuild `art3d_sync.zip` immediately after any source change, and restart Blender after reinstalling — never trust a hot-reinstall** (a running session can have old modules cached in `sys.modules`, silently reintroducing bugs that look like regressions). Rebuild command + reinstall steps: `rebuild-plugin-zip` skill (`.claude/skills/rebuild-plugin-zip/SKILL.md`).
 
 ## Conventions
 
-- **Only send fields the browser side can actually apply and that affect the rendered result** — see `../docs/settings-display-model.md`. Before dropping a field as unused, confirm it's genuinely dead in *Blender's own source*, not just unread by the browser yet (e.g. `turbidity`/`ground_albedo` were confirmed hardcoded-unused in Blender's own `MULTIPLE_SCATTERING` C++ source before being dropped from `world_sync.py`).
+- **Only send fields the browser side can actually apply and that affect the rendered result** — see `../CLAUDE.md`'s Settings Display Model. Before dropping a field as unused, confirm it's genuinely dead in *Blender's own source*, not just unread by the browser yet (e.g. `turbidity`/`ground_albedo` were confirmed hardcoded-unused in Blender's own `MULTIPLE_SCATTERING` C++ source before being dropped from `world_sync.py`).
 - Each sync concern gets its own `*_operators.py` + `*_sync.py` pair, not appended to an existing file — one-file-one-responsibility.
 - Real Blender field values only — verify property names/units by introspecting the live Blender API (`bpy.types.*` on the actual running version), not from memory or potentially-stale documentation.
 - Each button press is a synchronous operator — Blender's UI blocks naturally for its duration; `window_manager.progress_begin/update/end` drives the native progress bar.
