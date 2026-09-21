@@ -2,7 +2,8 @@ import time
 
 import bpy
 
-from .constants import SERVER_URL
+from .constants import DEV_TOKEN, SERVER_URL
+from .project import get_project_id
 from .scene_graph import build_sync_objects, collect_all_scene_objects, collect_selected_with_ancestors
 from .socket_client import SocketIOEmitError, emit_once
 
@@ -24,6 +25,11 @@ class ART3D_OT_send_scene(bpy.types.Operator):
 
     def execute(self, context):
         global _send_count
+
+        project_id = get_project_id(context)
+        if not project_id:
+            self.report({"ERROR"}, "Set a Project ID in the 3D Art panel before sending")
+            return {"CANCELLED"}
 
         objects = (
             collect_selected_with_ancestors(context)
@@ -53,7 +59,12 @@ class ART3D_OT_send_scene(bpy.types.Operator):
         }
 
         try:
-            emit_once(SERVER_URL, "blender-sync", payload)
+            emit_once(
+                SERVER_URL,
+                "blender-sync",
+                payload,
+                auth={"token": DEV_TOKEN, "projectId": project_id},
+            )
         except SocketIOEmitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
