@@ -8,13 +8,20 @@ single fire-and-forget emit per button press; not a persistent connection.
 import json
 import urllib.error
 import urllib.request
+from typing import Optional
 
 
 class SocketIOEmitError(RuntimeError):
     pass
 
 
-def emit_once(base_url: str, event: str, payload: dict, timeout: float = 300.0) -> None:
+def emit_once(
+    base_url: str,
+    event: str,
+    payload: dict,
+    timeout: float = 300.0,
+    auth: Optional[dict] = None,
+) -> None:
     handshake_url = f"{base_url}/socket.io/?EIO=4&transport=polling"
     try:
         handshake_raw = _http_get(handshake_url, timeout)
@@ -24,8 +31,13 @@ def emit_once(base_url: str, event: str, payload: dict, timeout: float = 300.0) 
     sid = _parse_handshake_sid(handshake_raw)
     poll_url = f"{base_url}/socket.io/?EIO=4&transport=polling&sid={sid}"
 
+    # CONNECT (default namespace) — the auth object, if any, rides as this
+    # packet's JSON body (Socket.IO's own handshake.auth on the server side),
+    # same as socket.io-client's `io(url, { auth })` — see
+    # blender-sync.gateway.ts's handleConnection for what reads it.
+    connect_packet = "40" + (json.dumps(auth) if auth else "")
     try:
-        _http_post(poll_url, "40", timeout)  # Socket.IO CONNECT (default namespace)
+        _http_post(poll_url, connect_packet, timeout)
         _http_post(poll_url, "42" + json.dumps([event, payload]), timeout)  # EVENT
     except (urllib.error.URLError, TimeoutError) as error:
         raise SocketIOEmitError(f"Failed sending to {base_url}: {error}") from error

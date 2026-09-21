@@ -9,18 +9,22 @@ art3d_sync/                     # addon package — name must be a valid Python
 │                                # identifier (no hyphens, no leading digit),
 │                                # since Blender imports it as a module
 ├── __init__.py                 # bl_info + register()/unregister()
-├── panel.py                    # N-panel UI, sectioned: General Settings / Objects / Lighting
-├── constants.py                 # SERVER_URL, shared by all operator modules
+├── panel.py                    # N-panel UI, sectioned: Project / General Settings / Objects / Lighting / Camera
+├── constants.py                 # SERVER_URL, DEV_TOKEN — shared by all operator modules
 ├── operators.py                # ART3D_OT_send_scene (scope: 'selected'|'all') — orchestrates, emits
 ├── world_operators.py          # ART3D_OT_send_world — orchestrates, emits "blender-world-sync"
 ├── world_sync.py               # Reads the active World's Sky Texture node → plain-dict sky payload
 ├── light_operators.py          # ART3D_OT_send_lighting (scope: 'selected'|'all') — orchestrates, emits "blender-lighting-sync"
-├── light_sync.py               # Walks Light objects → plain-dict payload, world-space (not part of the object hierarchy)
+├── light_sync.py               # Walks Light objects → plain-dict payload, light-data only (color/energy/shadow/...), keyed by the same stable id as scene_graph.py — never resends position/direction
 ├── render_settings_operators.py # ART3D_OT_send_render_settings — orchestrates, emits "blender-render-settings-sync"
 ├── render_settings_sync.py     # Reads scene.view_settings (exposure/view transform/look) → plain-dict payload
-├── scene_graph.py              # Walks selection/scene → objects[] payload entries (id, parentId, transform, real obj.type)
+├── camera_operators.py         # ART3D_OT_send_camera (scope: 'selected'|'all') — orchestrates, emits "blender-camera-sync"
+├── camera_sync.py              # Walks Camera objects → plain-dict payload, optics only (lens/sensor/clip/ortho) — no transform, that's scene_graph.py's job
+├── scene_graph.py              # Walks selection/scene → objects[] payload entries (id, name, parentId, transform, real obj.type)
+├── object_id.py                # get_stable_id(obj) — persistent per-object UUID (custom property `art3d_id`), survives renames; used by scene_graph.py, light_sync.py, camera_sync.py
+├── project.py                  # get_project_id(context) — Scene property (art3d_project_id), required by every send operator before it runs
 ├── gltf_exporter.py            # One object → .glb bytes, via a temp unparented/identity-transform duplicate
-└── socket_client.py            # stdlib-only Engine.IO/Socket.IO polling client
+└── socket_client.py            # stdlib-only Engine.IO/Socket.IO polling client — emit_once()'s `auth` param carries {token, projectId} in the CONNECT packet
 
 blender/                        # Small demo scenes/assets used to test and demonstrate sync — not addon source
 ```

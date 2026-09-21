@@ -2,21 +2,21 @@ import time
 
 import bpy
 
+from .camera_sync import build_camera_sync, collect_all_scene_cameras, collect_selected_cameras
 from .constants import DEV_TOKEN, SERVER_URL
-from .light_sync import build_light_sync, collect_all_scene_lights, collect_selected_lights
 from .project import get_project_id
 from .socket_client import SocketIOEmitError, emit_once
 
 
-class ART3D_OT_send_lighting(bpy.types.Operator):
-    bl_idname = "art3d.send_lighting"
-    bl_label = "Send Lighting"
-    bl_description = "Sends Light objects (type, color, energy, position, direction) to 3d-art-api"
+class ART3D_OT_send_camera(bpy.types.Operator):
+    bl_idname = "art3d.send_camera"
+    bl_label = "Send Camera"
+    bl_description = "Sends Camera objects' optics (lens, sensor, clip, ortho) to 3d-art-api"
 
     scope: bpy.props.EnumProperty(
         items=[
-            ("selected", "Selected", "Send the selected Light objects"),
-            ("all", "All", "Send every Light object in the scene"),
+            ("selected", "Selected", "Send the selected Camera objects"),
+            ("all", "All", "Send every Camera object in the scene"),
         ],
         default="selected",
     )
@@ -27,21 +27,21 @@ class ART3D_OT_send_lighting(bpy.types.Operator):
             self.report({"ERROR"}, "Set a Project ID in the 3D Art panel before sending")
             return {"CANCELLED"}
 
-        lights = collect_selected_lights(context) if self.scope == "selected" else collect_all_scene_lights(context)
-        if not lights:
-            message = "Nothing to send — select a light first" if self.scope == "selected" else "Scene has no lights"
+        cameras = collect_selected_cameras(context) if self.scope == "selected" else collect_all_scene_cameras(context)
+        if not cameras:
+            message = "Nothing to send — select a camera first" if self.scope == "selected" else "Scene has no cameras"
             self.report({"WARNING"}, message)
             return {"CANCELLED"}
 
         payload = {
             "timestamp": int(time.time() * 1000),
-            "lights": build_light_sync(lights),
+            "cameras": build_camera_sync(cameras),
         }
 
         try:
             emit_once(
                 SERVER_URL,
-                "blender-lighting-sync",
+                "blender-camera-sync",
                 payload,
                 auth={"token": DEV_TOKEN, "projectId": project_id},
             )
@@ -49,5 +49,5 @@ class ART3D_OT_send_lighting(bpy.types.Operator):
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
 
-        self.report({"INFO"}, f"Sent {len(lights)} light(s) to 3D Art")
+        self.report({"INFO"}, f"Sent {len(cameras)} camera(s) to 3D Art")
         return {"FINISHED"}

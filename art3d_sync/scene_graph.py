@@ -9,6 +9,7 @@ from typing import Callable, Optional
 import bpy
 
 from .gltf_exporter import export_object_glb
+from .object_id import get_stable_id
 
 # No Z-up/Y-up conversion here (or anywhere in this pipeline) — 3d-art-web's
 # whole scene is Z-up too (THREE.Object3D.DEFAULT_UP, see render.worker.ts),
@@ -50,8 +51,10 @@ def build_sync_objects(
 
         payload_objects.append(
             {
-                "id": obj.name,
-                "parentId": obj.parent.name if parent_included else None,
+                "id": get_stable_id(obj),
+                # Display-only — may change between syncs, never used as a key.
+                "name": obj.name,
+                "parentId": get_stable_id(obj.parent) if parent_included else None,
                 "action": "update",
                 # Blender's real Object.type enum (rna_enum_object_type_items,
                 # source/blender/makesrna/intern/rna_object.cc) — sent verbatim,
