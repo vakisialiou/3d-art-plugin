@@ -20,8 +20,9 @@ art3d_sync/                     # addon package — name must be a valid Python
 ├── render_settings_sync.py     # Reads scene.view_settings (exposure/view transform/look) → plain-dict payload
 ├── camera_operators.py         # ART3D_OT_send_camera (scope: 'selected'|'all') — orchestrates, emits "blender-camera-sync"
 ├── camera_sync.py              # Walks Camera objects → plain-dict payload, optics only (lens/sensor/clip/ortho) — no transform, that's scene_graph.py's job
-├── scene_graph.py              # Walks selection/scene → objects[] payload entries (id, name, parentId, transform, real obj.type)
-├── object_id.py                # get_stable_id(obj) — persistent per-object UUID (custom property `art3d_id`), survives renames; used by scene_graph.py, light_sync.py, camera_sync.py
+├── scene_graph.py              # Walks selection/scene → objects[] payload entries (id, name, parentId, transform, real obj.type); build_delete_entries() builds the {id, action:'delete'} entries for ids sent_ids.py finds missing
+├── object_id.py                # get_stable_id(obj) — persistent per-object UUID (custom property `art3d_id`), survives renames; used by scene_graph.py, light_sync.py, camera_sync.py. get_existing_id(obj) is the same lookup without generating a new id, for sent_ids.py's delete-diff
+├── sent_ids.py                 # get/set the set of object ids the last successful blender-sync send included (Scene custom property `art3d_sent_ids`) — operators.py diffs this against the current scene to detect deletions
 ├── project.py                  # get_project_id(context) — Scene property (art3d_project_id), required by every send operator before it runs
 ├── gltf_exporter.py            # One object → .glb bytes, via a temp unparented/identity-transform duplicate
 └── socket_client.py            # stdlib-only Engine.IO/Socket.IO polling client — emit_once()'s `auth` param carries {token, projectId} in the CONNECT packet
