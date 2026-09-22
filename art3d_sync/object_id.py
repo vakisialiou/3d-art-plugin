@@ -7,6 +7,7 @@ renames and reopens; generated once, on first use.
 """
 
 import uuid
+from typing import Optional
 
 import bpy
 
@@ -21,3 +22,11 @@ def get_stable_id(obj: bpy.types.Object) -> str:
     new_id = uuid.uuid4().hex
     obj[_ID_PROP] = new_id
     return new_id
+
+
+def get_existing_id(obj: bpy.types.Object) -> Optional[str]:
+    """Same lookup as `get_stable_id`, but never generates one — used to
+    inventory which objects already carry an id, without side-effecting
+    objects that were never sent (see `sent_ids.py`'s delete-diff)."""
+    existing = obj.get(_ID_PROP)
+    return existing if isinstance(existing, str) and existing else None

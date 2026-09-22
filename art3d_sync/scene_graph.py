@@ -77,3 +77,10 @@ def build_sync_objects(
 
 def _export_glb_base64(obj: bpy.types.Object) -> str:
     return base64.b64encode(export_object_glb(obj)).decode("ascii")
+
+
+def build_delete_entries(deleted_ids: set) -> list:
+    # Only `id`/`action` are meaningful for a delete — worker-render's
+    # applyBlenderSync never reads the rest for this action, so nothing else
+    # is sent (see ../../CLAUDE.md's "only send fields this app can apply").
+    return [{"id": object_id, "action": "delete"} for object_id in deleted_ids]
