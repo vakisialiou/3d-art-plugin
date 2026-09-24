@@ -17,12 +17,14 @@ from . import (
     panel,
     project,
     render_settings_operators,
+    world_hdri_operators,
     world_operators,
 )
 
 _classes = (
     operators.ART3D_OT_send_scene,
     world_operators.ART3D_OT_send_world,
+    world_hdri_operators.ART3D_OT_send_world_hdri,
     light_operators.ART3D_OT_send_lighting,
     render_settings_operators.ART3D_OT_send_render_settings,
     camera_operators.ART3D_OT_send_camera,

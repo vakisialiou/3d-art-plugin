@@ -24,6 +24,7 @@ class ART3D_PT_main_panel(bpy.types.Panel):
         box.label(text="General Settings", icon="WORLD")
         row = box.row(align=True)
         row.operator("art3d.send_world", text="Send Sky", icon="WORLD")
+        row.operator("art3d.send_world_hdri", text="Send HDRI", icon="IMAGE_DATA")
         row.operator("art3d.send_render_settings", text="Send Render Settings", icon="SETTINGS")
 
         # Objects
