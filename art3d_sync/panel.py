@@ -1,5 +1,7 @@
 import bpy
 
+from .world_hdri_sync import describe_world_hdri_source
+
 
 class ART3D_PT_main_panel(bpy.types.Panel):
     bl_idname = "ART3D_PT_main_panel"
@@ -26,6 +28,12 @@ class ART3D_PT_main_panel(bpy.types.Panel):
         row.operator("art3d.send_world", text="Send Sky", icon="WORLD")
         row.operator("art3d.send_world_hdri", text="Send HDRI", icon="IMAGE_DATA")
         row.operator("art3d.send_render_settings", text="Send Render Settings", icon="SETTINGS")
+        # What "Send HDRI" will actually send, shown before the click — the
+        # button's own disabled-tooltip (poll_message_set) covers the "why
+        # can't I click it" case; this covers "what will happen if I do".
+        hdri_source = describe_world_hdri_source(context)
+        hdri_status = f"HDRI source: {hdri_source}" if hdri_source else "HDRI source: none"
+        box.label(text=hdri_status, icon="INFO")
 
         # Objects
         box = layout.box()
