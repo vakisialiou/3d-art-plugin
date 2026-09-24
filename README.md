@@ -26,7 +26,7 @@ rm -f art3d_sync.zip && zip -r art3d_sync.zip art3d_sync -x "*.pyc" -x "__pycach
 
 ## 🌐 Конфигурация
 
-URL API захардкожен в `art3d_sync/constants.py` (`SERVER_URL`, по умолчанию `http://localhost:3000` — порт `3d-art-api` по умолчанию).
+URL API захардкожен в `art3d_sync/constants.py` (`SERVER_URL`, по умолчанию `http://localhost:3500` — порт `3d-art-api` по умолчанию).
 
 ## 📚 Документация
 
