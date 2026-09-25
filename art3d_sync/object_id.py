@@ -19,17 +19,13 @@ def resolve_stable_ids(objects: list) -> dict:
     the one entry point scene_graph.py uses for both an object's own `id`
     and a parent's `parentId` lookup.
 
-    Blender copies custom properties verbatim on Shift+D/Alt+D duplicate,
-    Ctrl+C/Ctrl+V paste, and File > Append/Link, so a fresh duplicate starts
-    out carrying an exact copy of its original's art3d_id — a real,
-    non-empty id is not proof it's actually unique. Resolving one object at
-    a time (this function's own predecessor) checked that against the rest
-    of the file correctly, but re-checking independently per object meant
+    Blender copies custom properties verbatim on duplicate/paste/append, so
+    a fresh duplicate can carry an exact copy of its original's art3d_id —
+    a non-empty id isn't proof it's unique. This function's per-object
+    predecessor checked that correctly but independently per object, so
     whichever of a colliding pair got resolved *first* silently kept the
-    id, reassigning it away from the other even when that other was the
-    long-lived original and the "winner" was a duplicate created moments
-    earlier — the outcome depended on call order, not on which object
-    actually owned the id's browser-side history.
+    id — order depended on call sequence, not on which object actually
+    owned the id's browser-side history.
 
     Resolved here as one batch instead: every object sharing an id is
     looked at together, and the tiebreaker is deterministic — the one whose

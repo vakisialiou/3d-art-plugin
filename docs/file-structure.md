@@ -14,6 +14,8 @@ art3d_sync/                     # addon package — name must be a valid Python
 ├── operators.py                # ART3D_OT_send_scene (scope: 'selected'|'all') — orchestrates, emits
 ├── world_operators.py          # ART3D_OT_send_world — orchestrates, emits "blender-world-sync"
 ├── world_sync.py               # Reads the active World's Sky Texture node → plain-dict sky payload
+├── world_hdri_operators.py     # ART3D_OT_send_world_hdri — orchestrates, emits "blender-world-hdri-sync"
+├── world_hdri_sync.py          # build_world_hdri_sync()/describe_world_hdri_source() — sends the World's Environment Texture image (re-encoded to Radiance HDR) verbatim, or bakes the procedural Sky Texture into an equirectangular HDRI if none is assigned
 ├── light_operators.py          # ART3D_OT_send_lighting (scope: 'selected'|'all') — orchestrates, emits "blender-lighting-sync"
 ├── light_sync.py               # Walks Light objects → plain-dict payload, light-data only (color/energy/shadow/...), keyed by the same stable id as scene_graph.py — never resends position/direction
 ├── render_settings_operators.py # ART3D_OT_send_render_settings — orchestrates, emits "blender-render-settings-sync"
@@ -30,4 +32,4 @@ art3d_sync/                     # addon package — name must be a valid Python
 blender/                        # Small demo scenes/assets used to test and demonstrate sync — not addon source
 ```
 
-Ships zipped as `art3d_sync.zip`, installed via Blender's Preferences → Add-ons → Install from Disk (rebuild/reinstall discipline and the actual command: `CLAUDE.md`'s Critical Discipline). No pip install required — `socket_client.py` speaks the Engine.IO/Socket.IO v4 polling protocol directly over `urllib`, since Blender's bundled Python has no `python-socketio`/`websocket-client`. Each button press opens a short-lived polling session, connects, emits one `blender-sync` event, and lets the session expire — not a persistent connection. Timeout is 60s (not 5s) to comfortably fit a heavy single object's export+transfer.
+Ships zipped as `art3d_sync.zip`, installed via Blender's Preferences → Add-ons → Install from Disk (rebuild/reinstall discipline and the actual command: `CLAUDE.md`'s Critical Discipline). No pip install required — `socket_client.py` speaks the Engine.IO/Socket.IO v4 polling protocol directly over `urllib`, since Blender's bundled Python has no `python-socketio`/`websocket-client`. Each button press opens a short-lived polling session, connects, emits one `blender-sync` event, and lets the session expire — not a persistent connection. Timeout is 300s (`emit_once()`'s default) to comfortably fit a heavy single object's export+transfer — no caller overrides it.

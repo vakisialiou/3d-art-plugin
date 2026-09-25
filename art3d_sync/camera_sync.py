@@ -1,9 +1,10 @@
 """Walks Camera objects into a plain-dict payload. Mirrors light_sync.py's
 approach — optics only, keyed by the same stable id as the object/hierarchy
 sync (scene_graph.py), which already carries this same object's transform.
-Never resend position/rotation here — see TODO-sync-redesign.md P1.3 for why
-that duplication was a real bug for lights, and CLAUDE.md's Settings Display
-Model for "the plugin only sends fields the browser side can actually apply".
+Never resend position/rotation here — that duplication was a real bug for
+lights (transform drifted out of sync with the object/hierarchy channel).
+See CLAUDE.md's Settings Display Model for "the plugin only sends fields
+the browser side can actually apply".
 """
 
 import bpy
