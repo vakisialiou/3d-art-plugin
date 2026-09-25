@@ -4,17 +4,22 @@ Blender addon (Python, `bpy`) that reads the current scene and streams it to `3d
 
 ## Structure
 
-`blender/` — small demo scenes and reference assets used to test/demonstrate sync (not addon source). Currently includes some heavy binaries (textures, a duplicate `.blend.zip` alongside its already-extracted folder) — worth trimming to genuinely small files before this grows further; large binaries here have no Git LFS in place yet, so they bloat this repo's history permanently once committed.
+`blender/` — small demo scenes and reference assets used to test/demonstrate sync (not addon source). Currently includes some heavy binaries (an 8MB+ `.blend` plus an already-tracked `.blend1` backup that `.gitignore` now excludes for new files, an fbx, and texture maps — ~19MB total) — worth trimming before this grows further; large binaries here have no Git LFS in place yet, so they bloat this repo's history permanently once committed.
 
 `art3d_sync/` (must be a valid Python identifier — no hyphens, no leading digit — Blender imports it as a module):
 
 - `__init__.py` — `bl_info` + `register()`/`unregister()`
-- `panel.py` — N-panel UI (General Settings / Objects / Lighting sections)
-- `constants.py` — `SERVER_URL`, shared across operator modules
+- `panel.py` — N-panel UI, sectioned: Project / General Settings / Objects / Lighting / Camera
+- `constants.py` — `SERVER_URL`, `DEV_TOKEN` — shared across operator modules
+- `project.py` — `get_project_id(context)` — the Scene property every send operator requires before running
+- `object_id.py` — `resolve_stable_ids(objects)` batch-resolves stable per-object ids (custom property `art3d_id`); `get_existing_id(obj)` is the side-effect-free lookup `sent_ids.py`'s delete-diff uses
+- `sent_ids.py` — tracks the object ids the last successful `blender-sync` included, for delete-detection
 - `operators.py` + `scene_graph.py` + `gltf_exporter.py` — object/scene sync (`ART3D_OT_send_scene`, `scope: 'selected'|'all'`)
 - `world_operators.py` + `world_sync.py` — sky (`ART3D_OT_send_world`)
+- `world_hdri_operators.py` + `world_hdri_sync.py` — HDRI for Material Preview (`ART3D_OT_send_world_hdri`) — sends the World's Environment Texture image verbatim, or bakes the procedural Sky Texture into an equirectangular HDRI if none is assigned
 - `light_operators.py` + `light_sync.py` — lighting (`ART3D_OT_send_lighting`)
 - `render_settings_operators.py` + `render_settings_sync.py` — render settings (`ART3D_OT_send_render_settings`)
+- `camera_operators.py` + `camera_sync.py` — camera optics sync (`ART3D_OT_send_camera`)
 - `socket_client.py` — stdlib-only Engine.IO/Socket.IO v4 polling client (no pip install — Blender's bundled Python has neither `python-socketio` nor `websocket-client`)
 
 Full annotated tree: `docs/file-structure.md`.

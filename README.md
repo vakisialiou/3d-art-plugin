@@ -14,7 +14,7 @@
 1. `art3d_sync.zip` в этой папке — упакованный аддон.
 2. В Blender: Edit → Preferences → Add-ons → Install from Disk… → выбрать `art3d_sync.zip` → включить чекбокс "3D Art Sync".
 3. **После обновления zip — полностью перезапустить Blender.** Уже запущенная сессия может держать старые Python-модули в кэше даже после изменения файлов на диске.
-4. В 3D Viewport открыть сайдбар (`N`) → вкладка "3D Art" → **Send Selected** / **Send All** / **Send Sky** / **Send Lighting** / **Send Render Settings**.
+4. В 3D Viewport открыть сайдбар (`N`) → вкладка "3D Art" → **Send Selected** / **Send All** / **Send Sky** / **Send HDRI** / **Send Render Settings** / **Send Lighting** (Selected/All) / **Send Camera** (Selected/All).
 
 ## ⚙️ Пересборка после изменений (обязательно)
 
