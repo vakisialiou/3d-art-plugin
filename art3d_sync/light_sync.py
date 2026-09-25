@@ -8,7 +8,7 @@ from mathutils import Vector
 
 import bpy
 
-from .object_id import get_stable_id
+from .object_id import resolve_stable_ids
 
 # Blender lights point down their local -Z axis — sending a precomputed
 # world-space unit direction means the browser never has to redo this
@@ -25,6 +25,7 @@ def collect_all_scene_lights(context: bpy.types.Context) -> list:
 
 
 def build_light_sync(objects: list) -> list:
+    resolved_ids = resolve_stable_ids(objects)
     payload = []
     for obj in objects:
         light = obj.data
@@ -34,7 +35,7 @@ def build_light_sync(objects: list) -> list:
         entry = {
             # Same stable id as the object/hierarchy sync (scene_graph.py) —
             # this is the same Blender object, just walked by a second channel.
-            "id": get_stable_id(obj),
+            "id": resolved_ids[obj.name],
             "type": light.type,  # 'POINT' | 'SUN' | 'SPOT' | 'AREA'
             "color": [light.color.r, light.color.g, light.color.b],
             # Radiometric Watts (Blender) — the browser applies its own

@@ -8,7 +8,7 @@ Model for "the plugin only sends fields the browser side can actually apply".
 
 import bpy
 
-from .object_id import get_stable_id
+from .object_id import resolve_stable_ids
 
 
 def collect_selected_cameras(context: bpy.types.Context) -> list:
@@ -20,12 +20,13 @@ def collect_all_scene_cameras(context: bpy.types.Context) -> list:
 
 
 def build_camera_sync(objects: list) -> list:
+    resolved_ids = resolve_stable_ids(objects)
     payload = []
     for obj in objects:
         camera = obj.data
         payload.append(
             {
-                "id": get_stable_id(obj),
+                "id": resolved_ids[obj.name],
                 "lensMm": camera.lens,
                 "sensorWidthMm": camera.sensor_width,
                 "clipNearM": camera.clip_start,
