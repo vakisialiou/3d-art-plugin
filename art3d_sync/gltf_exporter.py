@@ -23,6 +23,8 @@ from typing import Optional
 import bpy
 from mathutils import Matrix
 
+from .material_bake import bake_base_colors, cleanup_baked_materials, cleanup_duplicate_mesh
+
 
 def export_object_glb(obj: bpy.types.Object) -> bytes:
     """Exports `obj`'s geometry (plus skin + animation, if `obj` has an
@@ -94,6 +96,17 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
         duplicate_armature.select_set(True)
     bpy.context.view_layer.objects.active = duplicate
 
+    # Must run with `duplicate` already the sole selected+active object (bake
+    # needs both) but before export — see material_bake.py's own doc comment
+    # for why this exists at all (glTF can't carry a procedural Base Color
+    # graph, and Blender's own exporter has no option to bake one itself).
+    baked_materials = bake_base_colors(duplicate)
+    # Captured *after* baking: bake_base_colors() may have swapped
+    # duplicate.data for an independent copy (see its own doc comment) — this
+    # is whichever mesh datablock duplicate actually ends up exported with,
+    # the one cleanup_duplicate_mesh needs to check, not obj's own original.
+    duplicate_mesh_data = duplicate.data
+
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             glb_path = os.path.join(tmp_dir, "object.glb")
@@ -114,7 +127,9 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
             with open(glb_path, "rb") as glb_file:
                 return glb_file.read()
     finally:
+        cleanup_baked_materials(baked_materials)
         bpy.data.objects.remove(duplicate)
+        cleanup_duplicate_mesh(duplicate_mesh_data)
         if duplicate_armature is not None:
             bpy.data.objects.remove(duplicate_armature)
         bpy.ops.object.select_all(action="DESELECT")
