@@ -259,7 +259,7 @@ def cleanup_baked_materials(materials: list) -> None:
         bpy.data.materials.remove(material)
 
 
-def cleanup_duplicate_mesh(mesh: bpy.types.Mesh) -> None:
+def cleanup_duplicate_mesh(mesh) -> None:
     """Removes a mesh-data copy bake_procedural_channels() made, once nothing
     still references it — call *after* the duplicate object itself has been
     removed (that drop is what brings this to 0 users; calling any earlier
@@ -267,6 +267,16 @@ def cleanup_duplicate_mesh(mesh: bpy.types.Mesh) -> None:
     bake_procedural_channels() never had to copy anything, or this same mesh
     is somehow still referenced elsewhere) — without this leaving an orphaned
     mesh datablock behind on every baked send, across a long-running Blender
-    session sending many objects."""
+    session sending many objects.
+
+    Also a no-op for anything that isn't a real bpy.types.Mesh: both
+    bake_procedural_channels() and approximate_volume_materials() only ever
+    copy `.data` for a MESH object (each checks `duplicate.type != "MESH"`
+    up front) — a CURVE/SURFACE/META/FONT object's `.data` is never copied,
+    so it's still the real, live datablock the original scene object owns.
+    `bpy.data.meshes.remove()` on one of those would be a type mismatch
+    (wrong collection) even before considering it's not a duplicate at all."""
+    if not isinstance(mesh, bpy.types.Mesh):
+        return
     if mesh.users == 0:
         bpy.data.meshes.remove(mesh)
