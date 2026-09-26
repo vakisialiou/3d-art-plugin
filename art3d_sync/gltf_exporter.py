@@ -28,6 +28,7 @@ from .material_bake import (
     cleanup_baked_materials,
     cleanup_duplicate_mesh,
 )
+from .material_volume import approximate_volume_materials
 
 
 def export_object_glb(obj: bpy.types.Object) -> bytes:
@@ -104,12 +105,14 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
     # needs both) but before export — see material_bake.py's own doc comment
     # for why this exists at all (glTF can't carry a procedural Base
     # Color/Roughness/Normal graph, and Blender's own exporter has no option
-    # to bake one itself).
+    # to bake one itself). approximate_volume_materials handles the other
+    # thing glTF can't carry at all — a Volume shader — see material_volume.py.
     baked_materials = bake_procedural_channels(duplicate)
-    # Captured *after* baking: bake_base_colors() may have swapped
-    # duplicate.data for an independent copy (see its own doc comment) — this
-    # is whichever mesh datablock duplicate actually ends up exported with,
-    # the one cleanup_duplicate_mesh needs to check, not obj's own original.
+    volume_materials = approximate_volume_materials(duplicate)
+    # Captured *after* both: either may have swapped duplicate.data for an
+    # independent copy (see their own doc comments) — this is whichever mesh
+    # datablock duplicate actually ends up exported with, the one
+    # cleanup_duplicate_mesh needs to check, not obj's own original.
     duplicate_mesh_data = duplicate.data
 
     try:
@@ -132,7 +135,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
             with open(glb_path, "rb") as glb_file:
                 return glb_file.read()
     finally:
-        cleanup_baked_materials(baked_materials)
+        cleanup_baked_materials(baked_materials + volume_materials)
         bpy.data.objects.remove(duplicate)
         cleanup_duplicate_mesh(duplicate_mesh_data)
         if duplicate_armature is not None:
