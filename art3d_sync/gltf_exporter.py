@@ -23,7 +23,11 @@ from typing import Optional
 import bpy
 from mathutils import Matrix
 
-from .material_bake import bake_base_colors, cleanup_baked_materials, cleanup_duplicate_mesh
+from .material_bake import (
+    bake_procedural_channels,
+    cleanup_baked_materials,
+    cleanup_duplicate_mesh,
+)
 
 
 def export_object_glb(obj: bpy.types.Object) -> bytes:
@@ -98,9 +102,10 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
 
     # Must run with `duplicate` already the sole selected+active object (bake
     # needs both) but before export — see material_bake.py's own doc comment
-    # for why this exists at all (glTF can't carry a procedural Base Color
-    # graph, and Blender's own exporter has no option to bake one itself).
-    baked_materials = bake_base_colors(duplicate)
+    # for why this exists at all (glTF can't carry a procedural Base
+    # Color/Roughness/Normal graph, and Blender's own exporter has no option
+    # to bake one itself).
+    baked_materials = bake_procedural_channels(duplicate)
     # Captured *after* baking: bake_base_colors() may have swapped
     # duplicate.data for an independent copy (see its own doc comment) — this
     # is whichever mesh datablock duplicate actually ends up exported with,
