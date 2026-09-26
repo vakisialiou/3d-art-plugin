@@ -11,7 +11,7 @@ from .socket_client import SocketIOEmitError, emit_once
 class ART3D_OT_send_render_settings(bpy.types.Operator):
     bl_idname = "art3d.send_render_settings"
     bl_label = "Send Render Settings"
-    bl_description = "Sends the render exposure to 3d-art-api"
+    bl_description = "Sends exposure, view transform, and render resolution to 3d-art-api"
 
     def execute(self, context):
         project_id = get_project_id(context)
