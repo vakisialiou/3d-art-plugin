@@ -15,6 +15,17 @@ from .object_id import resolve_stable_ids
 # whole scene is Z-up too (THREE.Object3D.DEFAULT_UP, see render.worker.ts),
 # matching Blender natively. Blender's own matrix_local is sent as-is.
 
+# Blender's own real glTF exporter (export_apply=True, see gltf_exporter.py)
+# evaluates any of these down to a real mesh at export time — confirmed by
+# real bpy export tests, not assumed from the type list alone. The rest of
+# Blender's Object.type enum either has no visible geometry of its own
+# (EMPTY/ARMATURE/LATTICE/LIGHT_PROBE/SPEAKER), is already synced through
+# its own dedicated channel (CAMERA/LIGHT — blender-camera-sync/
+# blender-lighting-sync), or genuinely doesn't convert to a mesh this way
+# (GREASEPENCIL/VOLUME/POINTCLOUD/CURVES-hair, verified the same way — would
+# need dedicated per-type handling this project has no real case for yet).
+_MESH_CONVERTIBLE_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT"}
+
 
 def collect_selected_with_ancestors(context: bpy.types.Context) -> list:
     collected: dict = {}
@@ -69,7 +80,7 @@ def build_sync_objects(
                 # such ambiguity, and both compose with the same Hamilton product.
                 "rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
                 "scale": [scale.x, scale.y, scale.z],
-                "glb": _export_glb_base64(obj) if obj.type == "MESH" else None,
+                "glb": _export_glb_base64(obj) if obj.type in _MESH_CONVERTIBLE_TYPES else None,
             }
         )
 
