@@ -19,19 +19,40 @@ project's reference scene (materials-demo.blend, 65 materials), not guessed:
   Texture (the standard Blender-to-glTF normal-map workflow) — only the
   procedural cases need baking.
 - Roughness: 2 materials (a Color Ramp, a Map Range).
+- Emission: 2 materials (Mat_Lava, Mat_Hologram) drive Emission Strength
+  through a procedural graph (their actual glow pattern — cracks/dithering)
+  while Emission Color stays flat. glTF only has a texture slot on Emission
+  *Color* (confirmed by reading io_scene_gltf2's own
+  `material/extensions/emission.py`: `export_emission_texture` only ever
+  gathers a texture from the "Emissive" — i.e. Emission Color — socket;
+  Emission Strength is read as a plain factor via `get_factor_from_socket`,
+  never a texture) — so baking Emission Strength alone into its own image
+  and wiring that into Emission Strength, the way Roughness does for its own
+  input, would export as an inert, un-textured factor and lose the pattern
+  all over again. Instead: `bpy.ops.object.bake(type='EMIT')`, confirmed
+  empirically to read Principled BSDF's own real Emission Color*Strength
+  product directly with the material completely unmodified (no rewiring
+  needed at all — unlike material_volume.py's Density/Color bake, Emission
+  *is* already part of Surface's own contribution to what 'EMIT' bakes), so
+  one bake captures the true combined result regardless of which of the two
+  inputs is procedural. The baked image is wired into Emission Color;
+  Emission Strength is reset to a flat 1.0 (the bake already carries the
+  full product) — see `_bake_emission_channel`.
 - Metallic: every material in the reference scene has it flat. Deliberately
   NOT baked here — unlike Base Color/Roughness, Blender's own bake operator
   (bpy.ops.object.bake, confirmed via its real bl_rna `type` enum) has no
   dedicated Metallic pass; the only way to bake an arbitrary socket like this
   is rewiring it through a temporary Emission shader and baking type='EMIT',
-  a real technique but a separate, untested code path with nothing in this
-  scene to exercise or verify it against. Add it the same way as Roughness
-  below if a real material ever needs it.
+  the same technique material_volume.py already uses for its own Volume
+  sockets — untested here because nothing in this scene exercises it. Add it
+  the same way as Roughness below if a real material ever needs it.
 """
 
 from typing import Optional
 
 import bpy
+
+from .shader_bake import find_principled_surface
 
 _BAKE_SIZE = 512
 _BAKE_IMAGE_PREFIX = "__art3d_bake"
@@ -46,15 +67,6 @@ _BAKE_IMAGE_PREFIX = "__art3d_bake"
 # fast; higher only smooths per-pixel noise-texture antialiasing, which
 # converges well before 4096.
 _BAKE_SAMPLES = 16
-
-
-def _find_principled(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeBsdfPrincipled]:
-    if not material.use_nodes or material.node_tree is None:
-        return None
-    for node in material.node_tree.nodes:
-        if node.bl_idname == "ShaderNodeBsdfPrincipled":
-            return node
-    return None
 
 
 def _needs_factor_bake(socket) -> bool:
@@ -84,16 +96,26 @@ def _needs_normal_bake(socket) -> bool:
     return color_input.links[0].from_node.bl_idname != "ShaderNodeTexImage"
 
 
+def _needs_emission_bake(principled: bpy.types.ShaderNodeBsdfPrincipled) -> bool:
+    """True if Emission Color or Emission Strength is graph-driven — either
+    alone means the pair's combined product needs baking as one texture (see
+    _bake_emission_channel and the module docstring's Emission section)."""
+    return _needs_factor_bake(principled.inputs.get("Emission Color")) or _needs_factor_bake(
+        principled.inputs.get("Emission Strength")
+    )
+
+
 def _needs_bake(material: Optional[bpy.types.Material]) -> bool:
     if material is None:
         return False
-    principled = _find_principled(material)
+    principled = find_principled_surface(material)
     if principled is None:
         return False
     return (
         _needs_factor_bake(principled.inputs.get("Base Color"))
         or _needs_factor_bake(principled.inputs.get("Roughness"))
         or _needs_normal_bake(principled.inputs.get("Normal"))
+        or _needs_emission_bake(principled)
     )
 
 
@@ -127,6 +149,12 @@ def _bake_factor_channel(
         bpy.ops.object.bake(type=bake_type, pass_filter=pass_filter, margin=4)
     else:
         bpy.ops.object.bake(type=bake_type, margin=4)
+    # An unpacked bake result can read back blank once enough further
+    # bpy.ops.object.bake calls happen before export ever reads it (this
+    # material's own remaining channels, then the next material in the
+    # batch) — confirmed empirically, see shader_bake.bake_socket_to_image_node's
+    # own comment. Packing immediately makes it durable regardless.
+    image.pack()
     image_node = material.node_tree.nodes.active
     # The graph that used to feed this input is now baked into `image` —
     # replace it with the baked texture so the exporter sees a plain,
@@ -154,6 +182,7 @@ def _bake_normal_channel(
         normal_b="POS_Z",
         margin=4,
     )
+    image.pack()  # see _bake_factor_channel's own comment
     image_node = material.node_tree.nodes.active
     # Raw Image Texture RGB (0..1) isn't a normal vector — a Normal Map node
     # is what decodes it back to tangent-space -1..1 for Principled's Normal
@@ -163,6 +192,32 @@ def _bake_normal_channel(
     normal_map_node.space = "TANGENT"
     material.node_tree.links.new(image_node.outputs["Color"], normal_map_node.inputs["Color"])
     material.node_tree.links.new(normal_map_node.outputs["Normal"], principled.inputs["Normal"])
+
+
+def _bake_emission_channel(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    image_name: str,
+) -> None:
+    """See the module docstring's Emission section for why this bakes the
+    combined Color*Strength product (not Strength alone) and why no node
+    rewiring is needed first: `type='EMIT'` already reads Principled BSDF's
+    own real Emission contribution directly off the material as-is."""
+    image = _new_bake_image(image_name, "sRGB")
+    _activate_bake_target(material, image)
+    bpy.ops.object.bake(type="EMIT", margin=4)
+    image.pack()  # see _bake_factor_channel's own comment
+    image_node = material.node_tree.nodes.active
+    material.node_tree.links.new(image_node.outputs["Color"], principled.inputs["Emission Color"])
+    # The bake already carries the full Color*Strength product — a `.links`
+    # entry left in place here would still resolve to its own graph's value
+    # at export time (`default_value` alone is ignored while a socket stays
+    # linked), double-applying the strength on top of the already-correct
+    # baked texture.
+    strength_input = principled.inputs["Emission Strength"]
+    if strength_input.is_linked:
+        material.node_tree.links.remove(strength_input.links[0])
+    strength_input.default_value = 1.0
 
 
 def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
@@ -209,7 +264,7 @@ def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
             new_material = slot.material.copy()
             duplicate.data.materials[index] = new_material
             duplicate.active_material_index = index
-            principled = _find_principled(new_material)
+            principled = find_principled_surface(new_material)
 
             base_color = principled.inputs.get("Base Color")
             if _needs_factor_bake(base_color):
@@ -238,6 +293,11 @@ def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
             normal = principled.inputs.get("Normal")
             if _needs_normal_bake(normal):
                 _bake_normal_channel(new_material, principled, f"{_BAKE_IMAGE_PREFIX}_normal_{index}")
+
+            if _needs_emission_bake(principled):
+                _bake_emission_channel(
+                    new_material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}"
+                )
 
             baked_materials.append(new_material)
     finally:

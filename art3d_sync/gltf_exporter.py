@@ -28,6 +28,7 @@ from .material_bake import (
     cleanup_baked_materials,
     cleanup_duplicate_mesh,
 )
+from .material_flatten import flatten_incompatible_surfaces
 from .material_volume import approximate_volume_materials
 
 
@@ -102,17 +103,23 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
     bpy.context.view_layer.objects.active = duplicate
 
     # Must run with `duplicate` already the sole selected+active object (bake
-    # needs both) but before export — see material_bake.py's own doc comment
-    # for why this exists at all (glTF can't carry a procedural Base
-    # Color/Roughness/Normal graph, and Blender's own exporter has no option
-    # to bake one itself). approximate_volume_materials handles the other
-    # thing glTF can't carry at all — a Volume shader — see material_volume.py.
+    # needs both) but before export. flatten_incompatible_surfaces runs
+    # first — see its own doc comment for why: a material whose Surface
+    # isn't a single Principled BSDF at all (a Mix Shader blend, this
+    # scene's own Mat_Iron_Rusty/Mat_Copper_Patina) has to become one before
+    # bake_procedural_channels' own per-channel logic has anything to find.
+    # bake_procedural_channels itself handles glTF's other real gap — no
+    # procedural Base Color/Roughness/Normal/Emission graph, and Blender's
+    # own exporter has no option to bake one itself (material_bake.py's own
+    # doc comment). approximate_volume_materials handles the third thing
+    # glTF can't carry at all — a Volume shader — see material_volume.py.
+    flattened_materials = flatten_incompatible_surfaces(duplicate)
     baked_materials = bake_procedural_channels(duplicate)
     volume_materials = approximate_volume_materials(duplicate)
-    # Captured *after* both: either may have swapped duplicate.data for an
-    # independent copy (see their own doc comments) — this is whichever mesh
-    # datablock duplicate actually ends up exported with, the one
-    # cleanup_duplicate_mesh needs to check, not obj's own original.
+    # Captured *after* all three: any of them may have swapped duplicate.data
+    # for an independent copy (see their own doc comments) — this is
+    # whichever mesh datablock duplicate actually ends up exported with, the
+    # one cleanup_duplicate_mesh needs to check, not obj's own original.
     duplicate_mesh_data = duplicate.data
 
     try:
@@ -135,7 +142,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
             with open(glb_path, "rb") as glb_file:
                 return glb_file.read()
     finally:
-        cleanup_baked_materials(baked_materials + volume_materials)
+        cleanup_baked_materials(flattened_materials + baked_materials + volume_materials)
         bpy.data.objects.remove(duplicate)
         cleanup_duplicate_mesh(duplicate_mesh_data)
         if duplicate_armature is not None:

@@ -83,18 +83,15 @@ from typing import Optional
 
 import bpy
 
+from .shader_bake import bake_socket_to_image_node, find_output, find_principled_surface
+
 _VOLUME_NODE_TYPES = {
     "ShaderNodeVolumeScatter",
     "ShaderNodeVolumeAbsorption",
     "ShaderNodeVolumePrincipled",
 }
 
-_BAKE_SIZE = 512
 _BAKE_IMAGE_PREFIX = "__art3d_volume"
-# Same reasoning as material_bake.py's _BAKE_SAMPLES: reading a node graph's
-# own values, not the scene's real light transport — a low, fixed sample
-# count keeps export fast without under-sampling anything that matters.
-_BAKE_SAMPLES = 16
 
 # Below this, a Surface's Transmission Weight isn't a real authored glass
 # effect worth preserving via KHR_materials_transmission — falls back to the
@@ -108,21 +105,10 @@ _TRANSMISSION_EPSILON = 0.001
 _GLTF_SETTINGS_GROUP_NAME = "glTF Material Output"
 
 
-def _find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
-    output = None
-    for node in material.node_tree.nodes:
-        if node.bl_idname == "ShaderNodeOutputMaterial":
-            if node.is_active_output:
-                return node
-            if output is None:
-                output = node
-    return output
-
-
 def find_volume_node(material: Optional[bpy.types.Material]):
     if material is None or not material.use_nodes or material.node_tree is None:
         return None
-    output = _find_output(material)
+    output = find_output(material)
     if output is None:
         return None
     volume_input = output.inputs.get("Volume")
@@ -138,21 +124,8 @@ def is_volume_material(material: Optional[bpy.types.Material]) -> bool:
     return find_volume_node(material) is not None
 
 
-def _find_principled_surface(material: bpy.types.Material):
-    output = _find_output(material)
-    if output is None:
-        return None
-    surface = output.inputs.get("Surface")
-    if surface is None or not surface.is_linked:
-        return None
-    node = surface.links[0].from_node
-    if node.bl_idname != "ShaderNodeBsdfPrincipled":
-        return None
-    return node
-
-
 def _has_real_transmission(material: bpy.types.Material) -> bool:
-    surface = _find_principled_surface(material)
+    surface = find_principled_surface(material)
     if surface is None:
         return False
     transmission = surface.inputs.get("Transmission Weight")
@@ -161,48 +134,6 @@ def _has_real_transmission(material: bpy.types.Material) -> bool:
     if transmission.is_linked:
         return True
     return transmission.default_value > _TRANSMISSION_EPSILON
-
-
-def _bake_socket_to_image_node(
-    material: bpy.types.Material,
-    output_socket,
-    image_name: str,
-    colorspace: str,
-) -> bpy.types.ShaderNodeTexImage:
-    """Bakes `output_socket`'s resolved value (color or scalar, broadcast
-    across RGB) into a fresh image, via a temporary Emission shader wired to
-    Material Output's Surface. Restores whatever Surface pointed to before
-    this call once done — the real Surface Principled BSDF (see module
-    docstring: this path never replaces or disconnects it)."""
-    tree = material.node_tree
-    output = _find_output(material)
-    surface_input = output.inputs["Surface"]
-    original_from = surface_input.links[0].from_socket if surface_input.is_linked else None
-
-    emission = tree.nodes.new("ShaderNodeEmission")
-    tree.links.new(output_socket, emission.inputs["Color"])
-    tree.links.new(emission.outputs["Emission"], surface_input)
-
-    image = bpy.data.images.new(image_name, _BAKE_SIZE, _BAKE_SIZE)
-    image.colorspace_settings.name = colorspace
-    image_node = tree.nodes.new("ShaderNodeTexImage")
-    image_node.image = image
-    tree.nodes.active = image_node
-
-    original_engine = bpy.context.scene.render.engine
-    original_samples = bpy.context.scene.cycles.samples
-    bpy.context.scene.render.engine = "CYCLES"
-    bpy.context.scene.cycles.samples = _BAKE_SAMPLES
-    try:
-        bpy.ops.object.bake(type="EMIT", margin=4)
-    finally:
-        bpy.context.scene.render.engine = original_engine
-        bpy.context.scene.cycles.samples = original_samples
-
-    tree.nodes.remove(emission)
-    tree.links.new(original_from, surface_input)
-
-    return image_node
 
 
 def _resolve_channel(material: bpy.types.Material, socket, image_name: str, colorspace: str):
@@ -219,7 +150,7 @@ def _resolve_channel(material: bpy.types.Material, socket, image_name: str, colo
     from_node = socket.links[0].from_node
     if from_node.bl_idname == "ShaderNodeTexImage":
         return 'image', from_node
-    return 'image', _bake_socket_to_image_node(material, socket.links[0].from_socket, image_name, colorspace)
+    return 'image', bake_socket_to_image_node(material, socket.links[0].from_socket, image_name, colorspace)
 
 
 def _apply_channel(tree: bpy.types.NodeTree, target_socket, kind: str, value) -> None:
@@ -273,7 +204,7 @@ def _add_volume_extension_nodes(material: bpy.types.Material, thickness: float, 
     the Surface's already-correct KHR_materials_transmission. Never touches
     the real Surface Principled BSDF."""
     tree = material.node_tree
-    output = _find_output(material)
+    output = find_output(material)
     vol_node = find_volume_node(material)
 
     settings_node = tree.nodes.new("ShaderNodeGroup")
@@ -346,7 +277,7 @@ def _apply_volume_emission(material: bpy.types.Material, vol_node, image_prefix:
     if not has_emission:
         return
 
-    surface = _find_principled_surface(material)
+    surface = find_principled_surface(material)
     if surface is None:
         return
     tree = material.node_tree
@@ -359,8 +290,8 @@ def _apply_volume_emission(material: bpy.types.Material, vol_node, image_prefix:
 
 def _apply_beer_lambert(image: bpy.types.Image, thickness: float) -> None:
     """Turns a baked raw-density image (R=G=B=density, see
-    _bake_socket_to_image_node) into an alpha image in place: alpha = 1 -
-    exp(-density * thickness). `thickness` is the real object's own bounding
+    shader_bake.bake_socket_to_image_node) into an alpha image in place:
+    alpha = 1 - exp(-density * thickness). `thickness` is the real object's own bounding
     size, so this holds up for any future volume object regardless of
     scale — not a fixed guess."""
     count = len(image.pixels)
@@ -379,7 +310,7 @@ def _resolve_alpha(material: bpy.types.Material, density_socket, thickness: floa
         density = max(density_socket.default_value, 0.0) if density_socket is not None else 0.0
         alpha = 1.0 - math.exp(-density * thickness)
         return 'factor', max(0.0, min(1.0, alpha))
-    image_node = _bake_socket_to_image_node(material, density_socket.links[0].from_socket, image_name, "Non-Color")
+    image_node = bake_socket_to_image_node(material, density_socket.links[0].from_socket, image_name, "Non-Color")
     _apply_beer_lambert(image_node.image, thickness)
     return 'image', image_node
 
@@ -389,7 +320,7 @@ def _build_flat_alpha_approximation(material: bpy.types.Material, thickness: flo
     Surface alongside it (see module docstring, case 2) — no real material
     in this project's reference scene exercises this today."""
     tree = material.node_tree
-    output = _find_output(material)
+    output = find_output(material)
     vol_node = find_volume_node(material)
 
     principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
