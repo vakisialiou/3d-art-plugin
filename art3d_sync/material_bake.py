@@ -12,6 +12,9 @@ Ramp came out with no baseColorFactor key at all.
 Which channels actually need this was decided from a real audit of this
 project's reference scene (materials-demo.blend, 65 materials), not guessed:
 - Base Color: ~20 materials feed it through a Color Ramp/Mix/Brick graph.
+  One of them (Mat_Titanium_Anodized, Layer Weight -> Color Ramp -> Base
+  Color, a view-angle iridescence look) needs a different bake technique
+  than the rest — see `_has_view_dependent_node`'s own doc comment.
 - Normal: the dominant case — most materials feed a Bump node from a
   procedural texture (Wave/Noise/Voronoi/Checker/Mix), which has no glTF
   equivalent at all; a few feed a real Normal Map node instead, which *is*
@@ -52,7 +55,7 @@ from typing import Optional
 
 import bpy
 
-from .shader_bake import find_principled_surface
+from .shader_bake import bake_socket_to_image_node, find_principled_surface
 
 _BAKE_SIZE = 512
 _BAKE_IMAGE_PREFIX = "__art3d_bake"
@@ -94,6 +97,30 @@ def _needs_normal_bake(socket) -> bool:
     if color_input is None or not color_input.is_linked:
         return True
     return color_input.links[0].from_node.bl_idname != "ShaderNodeTexImage"
+
+
+def _has_view_dependent_node(socket, seen: Optional[set] = None) -> bool:
+    """True if `socket`'s upstream graph contains a Fresnel or Layer Weight
+    node (Mat_Titanium_Anodized's own real Base Color graph: Layer Weight ->
+    Color Ramp -> Base Color). Confirmed empirically, not guessed: baking
+    this exact socket via `_bake_factor_channel`'s normal DIFFUSE+COLOR pass
+    produces solid (0,0,0) — no camera ray exists during a texture bake for
+    a view-angle-dependent node to evaluate against — while baking the same
+    socket through `bake_socket_to_image_node`'s Emission-rewire trick
+    (which evaluates the real, complete shader output) produces its real,
+    correct gradient. `_bake_factor_channel` routes a socket like this
+    through that trick instead of its normal bake-pass-type path."""
+    if seen is None:
+        seen = set()
+    if socket is None or not socket.is_linked:
+        return False
+    node = socket.links[0].from_node
+    if id(node) in seen:
+        return False
+    seen.add(id(node))
+    if node.bl_idname in ("ShaderNodeFresnel", "ShaderNodeLayerWeight"):
+        return True
+    return any(_has_view_dependent_node(input_socket, seen) for input_socket in node.inputs)
 
 
 def _needs_emission_bake(principled: bpy.types.ShaderNodeBsdfPrincipled) -> bool:
@@ -143,20 +170,29 @@ def _bake_factor_channel(
     image_name: str,
     colorspace: str,
 ) -> None:
-    image = _new_bake_image(image_name, colorspace)
-    _activate_bake_target(material, image)
-    if pass_filter:
-        bpy.ops.object.bake(type=bake_type, pass_filter=pass_filter, margin=4)
+    socket = principled.inputs[input_name]
+    if _has_view_dependent_node(socket):
+        # See _has_view_dependent_node's own doc comment — this bake type's
+        # normal DIFFUSE/ROUGHNESS pass can't resolve a Fresnel/Layer Weight
+        # node and silently bakes it to solid black instead.
+        image_node = bake_socket_to_image_node(
+            material, socket.links[0].from_socket, image_name, colorspace
+        )
     else:
-        bpy.ops.object.bake(type=bake_type, margin=4)
-    # An unpacked bake result can read back blank once enough further
-    # bpy.ops.object.bake calls happen before export ever reads it (this
-    # material's own remaining channels, then the next material in the
-    # batch) — confirmed empirically, see shader_bake.bake_socket_to_image_node's
-    # own comment. Packing immediately makes it durable regardless.
-    image.pack()
-    image_node = material.node_tree.nodes.active
-    # The graph that used to feed this input is now baked into `image` —
+        image = _new_bake_image(image_name, colorspace)
+        _activate_bake_target(material, image)
+        if pass_filter:
+            bpy.ops.object.bake(type=bake_type, pass_filter=pass_filter, margin=4)
+        else:
+            bpy.ops.object.bake(type=bake_type, margin=4)
+        # An unpacked bake result can read back blank once enough further
+        # bpy.ops.object.bake calls happen before export ever reads it (this
+        # material's own remaining channels, then the next material in the
+        # batch) — confirmed empirically, see shader_bake.bake_socket_to_image_node's
+        # own comment. Packing immediately makes it durable regardless.
+        image.pack()
+        image_node = material.node_tree.nodes.active
+    # The graph that used to feed this input is now baked into the image —
     # replace it with the baked texture so the exporter sees a plain,
     # representable Image Texture, not the original (still-present-on-
     # `material`, now-orphaned) node graph.
