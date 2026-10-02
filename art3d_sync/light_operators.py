@@ -11,7 +11,7 @@ from .socket_client import SocketIOEmitError, emit_once
 class ART3D_OT_send_lighting(bpy.types.Operator):
     bl_idname = "art3d.send_lighting"
     bl_label = "Send Lighting"
-    bl_description = "Sends Light objects (type, color, energy, position, direction) to 3d-art-api"
+    bl_description = "Sends Light objects (type, color, energy, position, direction, shape, shadow filter) to 3d-art-api"
 
     scope: bpy.props.EnumProperty(
         items=[
