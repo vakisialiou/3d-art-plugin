@@ -14,6 +14,10 @@ import bpy
 BAKE_SIZE = 512
 BAKE_SAMPLES = 16
 
+# Marks the images new_bake_image() creates, so cleanup removes only those: a
+# material.copy() shares the user's own Image datablocks, it doesn't copy them.
+_BAKE_IMAGE_TAG = "art3d_bake"
+
 
 def find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
     output = None
@@ -44,7 +48,12 @@ def find_principled_surface(
 def new_bake_image(name: str, colorspace: str) -> bpy.types.Image:
     image = bpy.data.images.new(name, BAKE_SIZE, BAKE_SIZE)
     image.colorspace_settings.name = colorspace
+    image[_BAKE_IMAGE_TAG] = True
     return image
+
+
+def is_bake_image(image: bpy.types.Image) -> bool:
+    return bool(image.get(_BAKE_IMAGE_TAG))
 
 
 def activate_bake_target(

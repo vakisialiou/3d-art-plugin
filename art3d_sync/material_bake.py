@@ -19,9 +19,13 @@ from typing import Optional
 
 import bpy
 
-from .shader_bake import bake_socket_to_image_node, find_principled_surface
+from .shader_bake import (
+    bake_socket_to_image_node,
+    find_principled_surface,
+    is_bake_image,
+    new_bake_image,
+)
 
-_BAKE_SIZE = 512
 _BAKE_IMAGE_PREFIX = "__art3d_bake"
 
 # These passes read input values without light transport (DIFFUSE +
@@ -90,12 +94,6 @@ def _needs_bake(material: Optional[bpy.types.Material]) -> bool:
     )
 
 
-def _new_bake_image(name: str, colorspace: str) -> bpy.types.Image:
-    image = bpy.data.images.new(name, _BAKE_SIZE, _BAKE_SIZE)
-    image.colorspace_settings.name = colorspace
-    return image
-
-
 def _activate_bake_target(material: bpy.types.Material, image: bpy.types.Image) -> None:
     """Bake writes to the node tree's active Image Texture node."""
     image_node = material.node_tree.nodes.new("ShaderNodeTexImage")
@@ -118,7 +116,7 @@ def _bake_factor_channel(
             material, socket.links[0].from_socket, image_name, colorspace
         )
     else:
-        image = _new_bake_image(image_name, colorspace)
+        image = new_bake_image(image_name, colorspace)
         _activate_bake_target(material, image)
         if pass_filter:
             bpy.ops.object.bake(type=bake_type, pass_filter=pass_filter, margin=4)
@@ -135,7 +133,7 @@ def _bake_normal_channel(
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     image_name: str,
 ) -> None:
-    image = _new_bake_image(image_name, "Non-Color")
+    image = new_bake_image(image_name, "Non-Color")
     _activate_bake_target(material, image)
     # Tangent space, R=+X/G=+Y/B=+Z is glTF's normalTexture convention
     # (OpenGL-style, Y+), so no channel remap.
@@ -163,7 +161,7 @@ def _bake_emission_channel(
     image_name: str,
 ) -> None:
     """Bakes the combined Color*Strength (see the module docstring)."""
-    image = _new_bake_image(image_name, "sRGB")
+    image = new_bake_image(image_name, "sRGB")
     _activate_bake_target(material, image)
     bpy.ops.object.bake(type="EMIT", margin=4)
     image.pack()
@@ -257,11 +255,14 @@ def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
 
 
 def cleanup_baked_materials(materials: list) -> None:
-    """Removes the preprocessing materials and every image their Image
-    Texture nodes reference."""
+    """Removes the preprocessing materials and the bake images their Image
+    Texture nodes reference. The user's own images stay: the copies share
+    them with the original materials."""
     for material in materials:
         for node in material.node_tree.nodes:
-            if node.bl_idname == "ShaderNodeTexImage" and node.image is not None:
+            if node.bl_idname != "ShaderNodeTexImage" or node.image is None:
+                continue
+            if is_bake_image(node.image):
                 bpy.data.images.remove(node.image)
         bpy.data.materials.remove(material)
 
