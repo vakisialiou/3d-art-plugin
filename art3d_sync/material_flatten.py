@@ -88,12 +88,16 @@ def _find_mix_of_two_principled(material: bpy.types.Material):
 def _wire_scalar_source(tree: bpy.types.NodeTree, source_socket, target_socket) -> None:
     """Feeds `target_socket` (a MixRGB input) from `source_socket`'s link
     source if linked (a scalar into a Color input broadcasts as R=G=B), else
-    from its flat value broadcast across RGB."""
+    from its flat value — broadcast across RGB into a Color input, as-is into
+    the float Fac."""
     if source_socket.is_linked:
         tree.links.new(source_socket.links[0].from_socket, target_socket)
         return
     value = source_socket.default_value
-    target_socket.default_value = (value, value, value, 1.0)
+    if target_socket.type == "RGBA":
+        target_socket.default_value = (value, value, value, 1.0)
+    else:
+        target_socket.default_value = value
 
 
 def _bake_metallic(material: bpy.types.Material, image_name: str) -> Optional[bpy.types.Image]:
