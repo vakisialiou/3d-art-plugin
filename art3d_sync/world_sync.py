@@ -3,7 +3,8 @@ plain-dict payload.
 
 find_world_sky() walks from the active World Output: Surface → Background →
 Color → Sky Texture, so a disconnected or second Sky node isn't picked. Any
-other graph falls back to the first Sky/Background node by type.
+other graph falls back to the first Sky node by type (and the walked Background,
+else the first one).
 """
 
 import math
@@ -59,7 +60,7 @@ def find_world_sky(
     sky = _first_by_type(world, _SKY_NODE_TYPE)
     if sky is None:
         return None
-    return sky, _first_by_type(world, _BACKGROUND_NODE_TYPE)
+    return sky, background or _first_by_type(world, _BACKGROUND_NODE_TYPE)
 
 
 def build_world_sync(
