@@ -1,80 +1,30 @@
-"""Approximates a Blender volume shader (Volume Scatter / Volume Absorption /
-Principled Volume) for glTF export — glTF has no volume representation at
-all, and Blender's own glTF exporter completely ignores Material Output's
-Volume socket (confirmed by reading
-io_scene_gltf2/blender/exp/material/pbr_metallic_roughness.py: it only ever
-reads the Surface socket's own Base Color/Alpha/etc).
+"""Approximates Volume shaders (Volume Scatter / Absorption / Principled
+Volume) for glTF, which has no volume model; Blender's glTF exporter reads
+only the Surface socket (io_scene_gltf2 exp/material/pbr_metallic_roughness.py).
 
-Two real cases, detected generically (never by material name):
+Two cases, detected generically:
 
-1. The Volume shader sits alongside a Surface Principled BSDF that has real
-   Transmission Weight (materials-demo.blend's Mat_Air/Mat_Cloud: Cycles
-   renders these as a transmissive/refractive solid — Surface and Volume
-   working *together*, confirmed by a real Cycles render, not a fluffy
-   translucent haze). Left alone, Blender's exporter already reads that
-   Surface correctly via the standard glTF extension
-   KHR_materials_transmission (search_node_tree.py's export_transmission
-   reads the Principled BSDF's own Transmission Weight socket directly,
-   unconditionally) — so the Surface needs no changes at all. What's
-   missing is the Volume's own contribution (its Color/Density), which has
-   no representation unless the material also carries a
-   KHR_materials_volume extension. Blender's real, intended mechanism for
-   that (confirmed via io_scene_gltf2/blender/exp/material/extensions/volume.py
-   and .../com/material_helpers.py, not guessed): a disconnected "glTF
-   Material Output" node group carrying a Thickness value, plus a
-   ShaderNodeVolumeAbsorption node carrying Color/Density — both purely for
-   the exporter to find, ignored by Cycles. This is the officially
-   documented way Blender users attach glTF-only volume data to a material,
-   not a workaround. Both KHR_materials_transmission and KHR_materials_volume
-   are natively supported on the read side too (three.js's GLTFLoader maps
-   them straight onto MeshPhysicalMaterial), so this path needs zero
-   web-side code.
+1. Surface is a Principled with real Transmission Weight: the exporter already
+   writes KHR_materials_transmission from it, so its transmission is left as-is.
+   The Volume's Color/Density is added as KHR_materials_volume through what
+   export_volume (exp/material/extensions/volume.py) reads: a disconnected
+   "glTF Material Output" group carrying Thickness, plus a Volume Absorption
+   node on the output's Volume input carrying Color/Density.
+   three.js's GLTFLoader maps both extensions onto MeshPhysicalMaterial, so no
+   web-side code is needed.
+2. No transmissive Surface ("pure fog"): a flat alpha-blend shell, alpha =
+   1 - exp(-density * thickness) (Beer-Lambert).
 
-2. The Volume shader has no meaningfully-transmissive Surface alongside it
-   (Transmission Weight ~0 or absent) — a "pure fog" material with nothing
-   for KHR_materials_transmission to attach to. Falls back to a flat,
-   single-shell alpha-blend approximation built from the volume's own
-   Density (Beer-Lambert: alpha = 1 - exp(-density * thickness), thickness
-   = the real object's own bounding size, not a fixed guess) — cruder, but
-   at least reads as haze instead of nothing. No real material in this
-   project's reference scene exercises this path today; kept because
-   "volume shader with an inert/absent surface" is a legitimate, generic
-   case, not a hypothetical to special-case away.
-
-Mapping detail for the KHR_materials_volume nodes:
-- Thickness <- the volume node's own Density input. Flat Density becomes a
-  flat Thickness factor (the object's own bounding size — Thickness is a
-  geometric quantity, independent of Density; Density instead drives
-  attenuationDistance below). A *procedural* Density (materials-demo.blend's
-  Mat_Cloud: noise-driven) has no per-pixel equivalent in
-  attenuationDistance (a single glTF factor) but glTF's thicknessTexture
-  *is* spatial — so the same raw baked density map (no Beer-Lambert curve;
-  raw density is already the right unit for "how deep is the medium here")
-  is reused as the thickness texture, reproducing the internal density
-  variation as spatially-varying depth instead of losing it.
-- attenuationDistance <- 1 / density (Beer-Lambert distance-to-37%), using a
-  flat Density value, or the mean of a baked/procedural one — Blender's own
-  export_volume.py computes this exact same reciprocal from a *constant*
-  Density socket, confirming this mapping rather than inventing it.
-- attenuationColor <- the volume node's own Color input (its scattering
-  tint) for both Volume Scatter and Principled Volume — both real node
-  types expose a "Color" input, checked via bpy introspection, not memory.
-- Principled Volume's separate Absorption Color and Anisotropy are
-  deliberately NOT folded in: this project's reference scene's own real
-  Absorption Color value is (0,0,0) — pure black — and glTF's
-  attenuationColor already carries the material's color story; combining a
-  second, differently-scoped color input on a guess risks corrupting color
-  on some future material for no verified gain. Anisotropy has no
-  glTF/three.js equivalent at all. Emission Color/Strength, where present
-  (Principled Volume only), pass straight through onto the Surface
-  Principled BSDF's own Emission inputs (glTF's native emissiveFactor).
-
-Baking an arbitrary node socket (Density, Color) has no dedicated Blender
-bake type — same gap material_bake.py's docstring flagged for Metallic.
-Exercised here via the same technique it names: temporarily rewire the
-socket into an Emission shader's Color input (Blender implicitly broadcasts
-a scalar into a color input as R=G=B, confirmed empirically) wired to
-Material Output's Surface, then bake type='EMIT'.
+thickness is always the object's largest bounding dimension. KHR_materials_volume
+mapping:
+- thicknessFactor = thickness. A procedural Density has no spatial slot except
+  thicknessTexture, so its raw baked map goes there to keep the variation.
+- attenuationDistance = 1 / Density, computed by export_volume from the
+  Absorption node — a procedural Density contributes its baked mean.
+- attenuationColor = the volume node's Color (mean if baked: no texture slot).
+- Principled Volume's Absorption Color and Anisotropy aren't mapped (no
+  verified gain / no glTF equivalent); its Emission goes onto the Surface
+  Principled's Emission inputs.
 """
 
 import math
@@ -93,15 +43,11 @@ _VOLUME_NODE_TYPES = {
 
 _BAKE_IMAGE_PREFIX = "__art3d_volume"
 
-# Below this, a Surface's Transmission Weight isn't a real authored glass
-# effect worth preserving via KHR_materials_transmission — falls back to the
-# flat alpha-blend approximation instead.
+# At or below this, Transmission Weight counts as none → alpha-blend fallback.
 _TRANSMISSION_EPSILON = 0.001
 
-# Blender's own real name for its glTF-only-properties node group (confirmed
-# via io_scene_gltf2/blender/com/material_helpers.py's get_gltf_node_name())
-# — the exporter matches a ShaderNodeGroup by this node_tree name prefix,
-# case-insensitively, regardless of which material or .blend it lives in.
+# io_scene_gltf2's get_gltf_node_name() (com/material_helpers.py); the
+# exporter finds the group by this node_tree name prefix, case-insensitively.
 _GLTF_SETTINGS_GROUP_NAME = "glTF Material Output"
 
 
@@ -137,11 +83,8 @@ def _has_real_transmission(material: bpy.types.Material) -> bool:
 
 
 def _resolve_channel(material: bpy.types.Material, socket, image_name: str, colorspace: str):
-    """Returns ('factor', value) for a flat/unlinked socket (value is a
-    float or an RGBA tuple, whatever default_value already is), or
-    ('image', image_node) if it's graph-driven — reusing the graph's own
-    Image Texture node directly when that's literally all it is (same
-    shortcut material_bake.py uses), baking everything else."""
+    """('factor', default_value) for an unlinked socket, else ('image', node):
+    a directly linked Image Texture node is reused, anything else is baked."""
     if socket is None:
         return 'factor', None
     if not socket.is_linked:
@@ -174,17 +117,10 @@ def _image_mean_channel(image: bpy.types.Image, channel: int = 0) -> float:
 
 
 def _get_or_create_gltf_settings_group() -> bpy.types.NodeTree:
-    """Mirrors io_scene_gltf2's own create_settings_group() (material_helpers.py)
-    closely enough to matter: BlenderMaterialIndentifier.__can_use_inline()
-    (materials.py) only checks for an *Occlusion* socket to decide whether a
-    material uses the glTF settings node at all — not Thickness. Omitting
-    Occlusion here (confirmed by testing: it silently passed with only
-    Thickness present) makes the exporter take its "inline shader nodes"
-    fast path instead, which flattens the live shading graph and drops any
-    disconnected node — including the Thickness group and the
-    ShaderNodeVolumeAbsorption node this module adds, with no error, just a
-    silently missing KHR_materials_volume. The Occlusion socket itself is
-    otherwise unused here."""
+    """Mirrors io_scene_gltf2's create_settings_group() (com/material_helpers.py).
+    The otherwise-unused Occlusion socket is required: materials.py's
+    __can_use_inline() checks only for it, and the inline path it guards
+    drops every disconnected node — silently losing KHR_materials_volume."""
     existing = bpy.data.node_groups.get(_GLTF_SETTINGS_GROUP_NAME)
     if existing is not None:
         return existing
@@ -199,10 +135,7 @@ def _get_or_create_gltf_settings_group() -> bpy.types.NodeTree:
 
 
 def _add_volume_extension_nodes(material: bpy.types.Material, thickness: float, image_prefix: str) -> None:
-    """Attaches the disconnected node pair Blender's own exporter looks for
-    (see module docstring) so KHR_materials_volume gets exported alongside
-    the Surface's already-correct KHR_materials_transmission. Never touches
-    the real Surface Principled BSDF."""
+    """Module docstring, case 1: adds the node pair export_volume reads."""
     tree = material.node_tree
     output = find_output(material)
     vol_node = find_volume_node(material)
@@ -217,17 +150,9 @@ def _add_volume_extension_nodes(material: bpy.types.Material, thickness: float, 
 
     absorption = tree.nodes.new("ShaderNodeVolumeAbsorption")
     if density_kind == 'image':
-        # Spatial density variation has no equivalent in
-        # KHR_materials_volume's single attenuationDistance factor —
-        # represent it as a thicknessTexture instead (glTF: "thickness of
-        # the volume beneath the surface" IS spatial), reusing the same
-        # baked map so the internal variation isn't lost.
-        # thicknessTexture values are 0..1, scaled by thicknessFactor
-        # (export_volume.py's get_factor_from_socket only detects a
-        # multiply-by-constant *before* the texture, defaulting to 1.0
-        # otherwise) — insert that multiply explicitly so a 2m object
-        # reports up to 2m of thickness, not an implicit 0..1m regardless of
-        # real scale.
+        # thicknessTexture is 0..1 times thicknessFactor, which the exporter
+        # reads from a constant multiply on the texture (get_factor_from_socket,
+        # else 1.0) — so scale by the object's size explicitly.
         scale = tree.nodes.new("ShaderNodeMath")
         scale.operation = 'MULTIPLY'
         scale.inputs[1].default_value = thickness
@@ -243,9 +168,7 @@ def _add_volume_extension_nodes(material: bpy.types.Material, thickness: float, 
         material, vol_node.inputs.get("Color"), f"{image_prefix}_color", "sRGB",
     )
     if color_kind == 'image':
-        # attenuationColor has no texture slot in KHR_materials_volume —
-        # fall back to its baked average rather than leaving Blender's
-        # neutral-white default in place.
+        # attenuationColor has no texture slot — use the baked mean.
         r = _image_mean_channel(color_value.image, 0)
         g = _image_mean_channel(color_value.image, 1)
         b = _image_mean_channel(color_value.image, 2)
@@ -253,14 +176,10 @@ def _add_volume_extension_nodes(material: bpy.types.Material, thickness: float, 
     else:
         _apply_channel(tree, absorption.inputs["Color"], color_kind, color_value)
 
-    # get_socket(..., volume=True) (io_scene_gltf2's real exporter) only
-    # finds a ShaderNodeVolumeAbsorption that's actually linked to the active
-    # Material Output's Volume input — confirmed by reading
-    # check_if_is_linked_to_active_output's use in get_node_socket, not
-    # assumed. Safe to steal that link from the real volume node here: this
-    # is a throwaway export-time material copy, never the live one Cycles
-    # renders (see gltf_exporter.py's export_object_glb, which always
-    # operates on a duplicate and discards it after export).
+    # The exporter's get_socket(..., volume=True) only finds an Absorption node
+    # linked to the active output's Volume input (search_node_tree.py's
+    # check_if_is_linked_to_active_output). Relinking is safe: this is an
+    # export-time material copy.
     tree.links.new(absorption.outputs["Volume"], output.inputs["Volume"])
 
     _apply_volume_emission(material, vol_node, image_prefix)
@@ -289,11 +208,8 @@ def _apply_volume_emission(material: bpy.types.Material, vol_node, image_prefix:
 
 
 def _apply_beer_lambert(image: bpy.types.Image, thickness: float) -> None:
-    """Turns a baked raw-density image (R=G=B=density, see
-    shader_bake.bake_socket_to_image_node) into an alpha image in place:
-    alpha = 1 - exp(-density * thickness). `thickness` is the real object's own bounding
-    size, so this holds up for any future volume object regardless of
-    scale — not a fixed guess."""
+    """Converts a baked raw-density image (R=G=B=density) to alpha in place:
+    1 - exp(-density * thickness)."""
     count = len(image.pixels)
     buffer = array('f', bytes(4 * count))
     image.pixels.foreach_get(buffer)
@@ -316,9 +232,7 @@ def _resolve_alpha(material: bpy.types.Material, density_socket, thickness: floa
 
 
 def _build_flat_alpha_approximation(material: bpy.types.Material, thickness: float, image_prefix: str) -> None:
-    """Fallback for a volume shader with no meaningfully-transmissive
-    Surface alongside it (see module docstring, case 2) — no real material
-    in this project's reference scene exercises this today."""
+    """Module docstring, case 2."""
     tree = material.node_tree
     output = find_output(material)
     vol_node = find_volume_node(material)
@@ -342,24 +256,13 @@ def _build_flat_alpha_approximation(material: bpy.types.Material, thickness: flo
 
 
 def approximate_volume_materials(duplicate: bpy.types.Object) -> list:
-    """For every material slot on `duplicate` whose material has a real
-    Blender volume shader (see is_volume_material), adds whatever glTF needs
-    to represent it (see module docstring for the two cases). `duplicate`
-    must already be the sole selected+active object (gltf_exporter.py's own
-    export_object_glb sets this up, same precondition bake_procedural_channels
-    relies on).
+    """Adds a glTF representation (module docstring) for each slot material on
+    `duplicate` with a volume shader, on a per-slot material copy. `duplicate`
+    must be the sole selected + active object.
 
-    Copies `duplicate.data` to an independent datablock the first time any
-    slot actually needs this — checked via `.users > 1` rather than a shared
-    flag with bake_procedural_channels, so this stays correct regardless of
-    which of the two runs first (users == 1 already means whichever ran
-    first made it independent). Objects with no volume materials pay
-    nothing extra, same discipline as bake_procedural_channels.
-
-    Returns the list of newly created material copies, for
-    cleanup_baked_materials() (material_bake.py — same shape: an image per
-    ShaderNodeTexImage node plus the material itself) to remove after
-    export.
+    Copies `duplicate.data` only if still shared (`users > 1`), so it's
+    correct whichever preprocessing step copied it first. Returns the
+    material copies for cleanup_baked_materials().
     """
     if duplicate.type != "MESH":
         return []

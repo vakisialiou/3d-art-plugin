@@ -1,6 +1,5 @@
-"""Which web project this .blend syncs to — a real Scene property (not a raw
-custom property like object_id.py's) so it shows as an editable text field in
-the N-panel and travels with the .blend file across machines.
+"""Which web project this .blend syncs to. A registered Scene property (not a
+raw custom property) so the N-panel can show it as an editable field.
 """
 
 import bpy

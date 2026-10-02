@@ -1,45 +1,31 @@
 # 3d-art-plugin
 
-Blender addon (Python, `bpy`) that reads the current scene and streams it to `3d-art-api` over socket.io. Cross-repo architecture, product vision, shared Key Principles (KISS/DRY, naming length, "ask don't pick silently", etc.): `../CLAUDE.md` — that repo is the documentation hub for all three repos. This file covers only what's unique to this repo.
+Blender addon (Python, `bpy`) that reads the current scene and sends it to `3d-art-api` over socket.io. Cross-repo architecture, shared Key Principles and the Settings Display Model: `../CLAUDE.md` (the documentation hub). This file covers only what's unique to this repo.
 
 ## Structure
 
-`blender/` — small demo scenes and reference assets used to test/demonstrate sync (not addon source). Currently includes some heavy binaries (an 8MB+ `.blend` plus an already-tracked `.blend1` backup that `.gitignore` now excludes for new files, an fbx, and texture maps — ~19MB total) — worth trimming before this grows further; large binaries here have no Git LFS in place yet, so they bloat this repo's history permanently once committed.
-
-`art3d_sync/` (must be a valid Python identifier — no hyphens, no leading digit — Blender imports it as a module):
-
-- `__init__.py` — `bl_info` + `register()`/`unregister()`
-- `panel.py` — N-panel UI, sectioned: Project / General Settings / Objects / Lighting / Camera
-- `constants.py` — `SERVER_URL`, `DEV_TOKEN` — shared across operator modules
-- `project.py` — `get_project_id(context)` — the Scene property every send operator requires before running
-- `object_id.py` — `resolve_stable_ids(objects)` batch-resolves stable per-object ids (custom property `art3d_id`); `get_existing_id(obj)` is the side-effect-free lookup `sent_ids.py`'s delete-diff uses
-- `sent_ids.py` — tracks the object ids the last successful `blender-sync` included, for delete-detection
-- `operators.py` + `scene_graph.py` + `gltf_exporter.py` — object/scene sync (`ART3D_OT_send_scene`, `scope: 'selected'|'all'`)
-- `world_operators.py` + `world_sync.py` — sky (`ART3D_OT_send_world`)
-- `world_hdri_operators.py` + `world_hdri_sync.py` — HDRI for Material Preview (`ART3D_OT_send_world_hdri`) — sends the World's Environment Texture image verbatim, or bakes the procedural Sky Texture into an equirectangular HDRI if none is assigned
-- `light_operators.py` + `light_sync.py` — lighting (`ART3D_OT_send_lighting`)
-- `render_settings_operators.py` + `render_settings_sync.py` — render settings (`ART3D_OT_send_render_settings`)
-- `camera_operators.py` + `camera_sync.py` — camera optics sync (`ART3D_OT_send_camera`)
-- `socket_client.py` — stdlib-only Engine.IO/Socket.IO v4 polling client (no pip install — Blender's bundled Python has neither `python-socketio` nor `websocket-client`)
-
-Full annotated tree: `docs/file-structure.md`.
+- `art3d_sync/` — the addon (per-file roles: `docs/file-structure.md`). The folder name must stay a valid Python identifier (no hyphens, no leading digit) — Blender imports it as a module.
+- `socket_client.py` is a stdlib-only (`urllib`) Engine.IO v4 / Socket.IO v5 polling client, so the addon needs no pip install (Blender's bundled Python has neither `python-socketio` nor `websocket-client`). One short-lived session per button press, not a persistent connection.
+- `blender/` — demo scenes and assets for testing sync, not addon source. Already ~17MB of tracked `.blend`/`.fbx`/texture binaries with no Git LFS — every commit bloats history permanently, so keep new binaries small. `*.blend1` backups are gitignored.
 
 ## Critical Discipline
 
-**Rebuild `art3d_sync.zip` immediately after any source change, and restart Blender after reinstalling — never trust a hot-reinstall** (a running session can have old modules cached in `sys.modules`, silently reintroducing bugs that look like regressions). Rebuild command + reinstall steps: `rebuild-plugin-zip` skill (`.claude/skills/rebuild-plugin-zip/SKILL.md`).
+**Rebuild `art3d_sync.zip` immediately after any source change, and restart Blender after reinstalling — never trust a hot-reinstall** (a running session keeps old modules cached in `sys.modules`, so a stale copy silently reintroduces bugs that look like regressions). Command + reinstall steps: `rebuild-plugin-zip` skill (`.claude/skills/rebuild-plugin-zip/SKILL.md`).
 
 ## Conventions
 
-- **Only send fields the browser side can actually apply and that affect the rendered result** — see `../CLAUDE.md`'s Settings Display Model. Before dropping a field as unused, confirm it's genuinely dead in *Blender's own source*, not just unread by the browser yet (e.g. `turbidity`/`ground_albedo` were confirmed hardcoded-unused in Blender's own `MULTIPLE_SCATTERING` C++ source before being dropped from `world_sync.py`).
-- Each sync concern gets its own `*_operators.py` + `*_sync.py` pair, not appended to an existing file — one-file-one-responsibility.
-- Real Blender field values only — verify property names/units by introspecting the live Blender API (`bpy.types.*` on the actual running version), not from memory or potentially-stale documentation.
-- Each button press is a synchronous operator — Blender's UI blocks naturally for its duration; `window_manager.progress_begin/update/end` drives the native progress bar.
+- **Send only fields the browser can actually apply and that affect the result** (`../CLAUDE.md`'s Settings Display Model). Before dropping a field as unused, confirm it's dead in *Blender's own source*, not just unread by the browser yet (e.g. `turbidity`/`ground_albedo` are unused by Blender's own `MULTIPLE_SCATTERING` sky, so `world_sync.py` doesn't send them).
+- One `*_operators.py` + `*_sync.py` pair per sync concern — never append a new concern to an existing file.
+- Verify property names/units by introspecting the live `bpy.types.*` of the running Blender version, not from memory or docs.
+- Each button is a synchronous operator (Blender's UI blocks for its duration); long work reports through `window_manager.progress_begin/update/end`.
+- **Material export**: glTF carries only flat factors or Image Textures; Blender's exporter silently *omits* any procedurally-driven input (an omitted `baseColorFactor` becomes glTF's default white) and ignores the Volume socket. So `gltf_exporter.py` preprocesses the temp duplicate's materials in order: `material_flatten.py` first (`material_bake.py` only handles a Surface that already is one Principled BSDF), then `material_bake.py`, then `material_volume.py` (roles: `docs/file-structure.md`). Find the Principled by walking from Material Output's Surface (`shader_bake.find_principled_surface`), never "the first Principled by type". Fidelity tests: `../3d-art-web/test/material/README.md`.
 
 ## Doc Map
 
 | File | Load it when… |
 |---|---|
-| `docs/file-structure.md` | navigating this repo's `art3d_sync/` |
-| `../docs/sync-protocol.md` | the wire payload shapes this plugin builds |
-| `../docs/tech-decisions.md` | current sync-protocol facts (per-object export, no axis conversion, quaternions, etc.) |
-| `../CLAUDE.md` | cross-repo architecture, product vision, Tech Stack, shared principles |
+| `docs/file-structure.md` | navigating `art3d_sync/` or deciding where a new file belongs |
+| `../docs/sync-protocol.md` | the wire payloads this plugin builds, transform/axis/rotation rules, project-room handshake |
+| `../3d-art-web/test/material/README.md` | changing material export |
+| `../docs/tech-decisions.md` | cross-repo architecture facts |
+| `../CLAUDE.md` | cross-repo architecture, product vision, shared principles |

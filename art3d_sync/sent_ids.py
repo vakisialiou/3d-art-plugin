@@ -1,8 +1,6 @@
-"""Tracks which object ids were included in the last successful `blender-sync`
-send, scoped to the Scene (persisted as a custom property, survives reopens).
-Lets `operators.py` diff the current scene against that record and emit
-`action: 'delete'` entries for ids that have vanished from the scene since —
-without this, a deleted object stays a ghost on the browser side forever.
+"""Ids included in the last successful `blender-sync`, persisted on the Scene.
+operators.py diffs the current scene against it to emit `action: 'delete'`
+entries — the only way the browser learns an object was deleted.
 """
 
 import bpy

@@ -1,41 +1,13 @@
-"""Flattens a material whose Surface isn't a single, directly-connected
-Principled BSDF into a synthetic one that is — glTF (and this project's own
-gltf_exporter.py/material_bake.py) has no way to represent an arbitrary
-shader network, only a single PBR-shaped material. Runs *before*
-material_bake.py's own bake_procedural_channels(), which only ever handles a
-material that already has exactly one Principled BSDF driving Surface
-(detected via shader_bake.find_principled_surface) — a Mix Shader material
-has no such node at all, so that function already does nothing for it on its
-own; this is what actually replaces it.
+"""Replaces a material whose Surface isn't one directly-wired Principled BSDF
+(Mix Shader, bare Glossy, Add Shader, ...) with a synthetic single-Principled
+material baked from it. Must run before material_bake.py, which only handles a
+Surface that already is one Principled.
 
-Base Color/Roughness/Normal/Emission are genuinely generic and need no
-per-material-shape logic at all: baking these (DIFFUSE+COLOR / ROUGHNESS /
-NORMAL / EMIT respectively) reads the material's real, already-evaluated
-shading result at each point, not any one node's own input value — confirmed
-empirically against this project's own Mat_Iron_Rusty (a real Mix Shader
-blending two Principled BSDFs): a DIFFUSE+COLOR bake shows genuine per-pixel
-variance matching the blend mask, not the flat value either Principled
-node's own Base Color input holds, and a ROUGHNESS bake likewise shows the
-real transition between the two nodes' values. This works regardless of what
-Surface actually is — a Mix Shader, a bare Glossy/Diffuse/Toon BSDF, an Add
-Shader, anything — so it covers a material shape this project's reference
-scene doesn't even have yet, not just the two Mix Shader cases audited here.
-
-Metallic is the one channel with no bake pass at all (material_bake.py's own
-docstring) and, unlike the other four, has no single "real" rendered value
-to read off an arbitrary blend either — reconstructed explicitly, and only
-for the one shape actually recognized: a Mix Shader blending exactly two
-Principled BSDFs (this scene's own Mat_Iron_Rusty/Mat_Copper_Patina, and
-Blender's standard "layered/weathered material" authoring pattern more
-generally — a base material overlaid with rust/patina/damage through a
-procedural mask). Bakes mix(metallic_A, metallic_B, Fac) using the Mix
-Shader's own real Fac source, via the same Emission-shader-rewire trick
-material_volume.py already uses for its own Volume sockets
-(shader_bake.bake_socket_to_image_node). Any other Surface shape (anything
-that isn't this recognized 2-Principled Mix Shader) falls back to a flat
-Metallic 0.0 — an honest, disclosed simplification, not a silent guess, and
-still strictly better than today's alternative for that shape (an arbitrary,
-unrelated node's value, or the material dropped from the export outright).
+Base Color/Roughness/Normal/Emission bake generically: DIFFUSE+COLOR /
+ROUGHNESS / NORMAL / EMIT read the evaluated shading result, whatever Surface
+is. Metallic has no bake pass, so it's reconstructed only for a Mix Shader of
+exactly two Principled BSDFs — mix(metallic_A, metallic_B, Fac) via
+shader_bake.bake_socket_to_image_node; any other shape gets flat Metallic 0.0.
 """
 
 from typing import Optional
@@ -69,8 +41,7 @@ def _bake_render_channel(
     image_name: str,
     colorspace: str,
 ) -> bpy.types.Image:
-    """Bakes `bake_type` from `material` exactly as it currently renders —
-    no rewiring, no assumption about what Surface is — into a fresh image."""
+    """Bakes `bake_type` from `material` as it currently renders, no rewiring."""
     image = new_bake_image(image_name, colorspace)
     activate_bake_target(material, image)
     with cycles_bake_settings():
@@ -78,22 +49,14 @@ def _bake_render_channel(
             bpy.ops.object.bake(type=bake_type, pass_filter=pass_filter, margin=4)
         else:
             bpy.ops.object.bake(type=bake_type, margin=4)
-    # See shader_bake.bake_socket_to_image_node's own comment: an unpacked
-    # bake result can read back blank once more bpy.ops.object.bake calls
-    # or datablock removals happen before anything consumes it — this
-    # function's own caller does several more of both (four more bakes, a
-    # material removal) before export ever reads these pixels.
+    # Pack immediately — see shader_bake.bake_socket_to_image_node.
     image.pack()
     return image
 
 
 def _find_mix_of_two_principled(material: bpy.types.Material):
-    """The one Metallic-recoverable shape this recognizes: Material
-    Output.Surface <- a Mix Shader <- two Principled BSDFs (Blender's own
-    real Fac=0->first input/Fac=1->second input convention — verified via
-    bpy introspection, not assumed). `None` for anything else, including a
-    Mix Shader blending anything other than two Principled BSDFs — callers
-    fall back to a flat Metallic in that case."""
+    """(first, second, Fac) for Surface <- Mix Shader <- two Principled BSDFs
+    (Fac=0 → first, Fac=1 → second), else None."""
     output = find_output(material)
     if output is None:
         return None
@@ -123,12 +86,9 @@ def _find_mix_of_two_principled(material: bpy.types.Material):
 
 
 def _wire_scalar_source(tree: bpy.types.NodeTree, source_socket, target_socket) -> None:
-    """Feeds `target_socket` (a MixRGB Color1/Color2 input) from whatever
-    actually drives `source_socket` — the link's own source if linked
-    (Blender broadcasts a scalar output into a Color input as R=G=B,
-    confirmed empirically, same as shader_bake.bake_socket_to_image_node's
-    own Emission.Color rewiring), or its flat value broadcast across RGB
-    otherwise."""
+    """Feeds `target_socket` (a MixRGB input) from `source_socket`'s link
+    source if linked (a scalar into a Color input broadcasts as R=G=B), else
+    from its flat value broadcast across RGB."""
     if source_socket.is_linked:
         tree.links.new(source_socket.links[0].from_socket, target_socket)
         return
@@ -164,15 +124,9 @@ def _build_flat_principled(
     emission: bpy.types.Image,
     metallic: Optional[bpy.types.Image],
 ) -> bpy.types.Material:
-    """A brand-new material, never the bake source's own tree: clearing and
-    rebuilding *that* tree in place (this function's own first version)
-    discarded the just-baked pixel data the moment its Image Texture nodes
-    were removed — confirmed empirically (baked images read back correctly
-    immediately after each bake call, but as all-zero once the source
-    tree's nodes were cleared and rebuilt afterward, even reusing the exact
-    same `bpy.types.Image` objects). A material created fresh via
-    `use_nodes = True` already gets a default Principled BSDF + Material
-    Output pair — reused directly rather than adding a second one."""
+    """Always a brand-new material: rebuilding the bake source's tree in place
+    zeroes the baked images once their Image Texture nodes are removed.
+    `use_nodes = True` creates the Principled + Output pair reused here."""
     material = bpy.data.materials.new(name)
     material.use_nodes = True
     tree = material.node_tree
@@ -206,33 +160,20 @@ def _build_flat_principled(
 
 
 def flatten_incompatible_surfaces(duplicate: bpy.types.Object) -> list:
-    """For every material slot on `duplicate` whose Surface isn't a single
-    Principled BSDF, bakes the whole material's real rendered look into a
-    fresh, synthetic single-Principled replacement — swapping in an
-    independent material *copy* per slot, same discipline as
-    material_bake.py's own bake_procedural_channels. `duplicate` must
-    already be the sole selected + active object (gltf_exporter.py's own
-    export_object_glb sets this up, same precondition bake_procedural_channels
-    and approximate_volume_materials rely on). Must run *before* either of
-    those two — see module docstring.
+    """Swaps each slot material on `duplicate` whose Surface isn't a single
+    Principled BSDF for a baked single-Principled one. `duplicate` must be the
+    sole selected + active object; run before bake_procedural_channels and
+    approximate_volume_materials.
 
-    Copies `duplicate.data` to an independent datablock the first time any
-    slot actually needs this — checked via `.users > 1`, same reasoning as
-    approximate_volume_materials's own doc comment (this module runs first
-    in practice, but stays correct regardless of order).
-
-    Returns the list of newly-created materials, for cleanup_baked_materials()
-    (material_bake.py — same shape: an image per ShaderNodeTexImage node plus
-    the material itself) to remove after export.
+    Copies `duplicate.data` first if it's still shared (`users > 1`).
+    Returns the new materials for cleanup_baked_materials().
     """
     if duplicate.type != "MESH":
         return []
     if not any(_needs_flatten(slot.material) for slot in duplicate.material_slots):
         return []
     if not duplicate.data.uv_layers:
-        # No UVs to bake into — leave these materials as-is, same fallback
-        # bake_procedural_channels uses, rather than fail the whole object's
-        # sync over one unbakeable material.
+        # No UVs to bake into — export as-is rather than fail the object.
         return []
 
     if duplicate.data.users > 1:
@@ -245,11 +186,8 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object) -> list:
             if not _needs_flatten(slot.material):
                 continue
 
-            # A transient copy, live in the slot only for bake targeting —
-            # never returned, never exported: removed (material only, not
-            # the images its bake-target nodes reference — those outlive it
-            # in the synthetic material built below) the moment baking is
-            # done.
+            # Transient copy, in the slot only so the bake targets it; removed
+            # after baking (its images live on in the synthetic material).
             bake_source = slot.material.copy()
             duplicate.data.materials[index] = bake_source
             duplicate.active_material_index = index
