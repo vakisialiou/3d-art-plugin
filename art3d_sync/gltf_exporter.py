@@ -1,19 +1,12 @@
-"""Exports a single Blender object to a .glb via Blender's own glTF exporter.
+"""Exports a single Blender object to a .glb via Blender's own glTF exporter —
+geometry + materials only; scene_graph.py sends the transform.
 
-Geometry + materials only — position/rotation/scale is computed separately in
-scene_graph.py (local-to-parent, so hierarchy resolves correctly on the
-browser side). Using the real exporter gets correct multi-material/per-face
-splitting and modifier baking for free.
+export_yup=False breaks the glTF spec on purpose: only our own GLTFLoader reads
+this file, and 3d-art-web's scene is Z-up like Blender (THREE.Object3D.DEFAULT_UP
+in render.worker.ts), so there is no axis conversion anywhere in the pipeline.
 
-export_yup=False is deliberate: the glTF spec mandates Y-up, but we're not
-interoperating with anything else that reads this file — only our own
-GLTFLoader does. Keeping Blender's native Z-up numbers means 3d-art-web's
-whole scene is Z-up too (THREE.Object3D.DEFAULT_UP, see render.worker.ts),
-so there is no axis conversion anywhere in this pipeline. See CLAUDE.md.
-
-Textures export at their original resolution — no downscaling. Heavy scenes
-take longer to send; that's expected and fine (see CLAUDE.md), not something
-to silently work around.
+Textures keep their original resolution — slow sends of heavy scenes are
+accepted, never worked around by downscaling.
 """
 
 import os
@@ -33,34 +26,21 @@ from .material_volume import approximate_volume_materials
 
 
 def export_object_glb(obj: bpy.types.Object) -> bytes:
-    """Exports `obj`'s geometry (plus skin + animation, if `obj` has an
-    Armature modifier) at the origin — its actual placement is sent
-    separately as explicit fields (see scene_graph.py) and applied on the
-    browser side. This isn't optional: exporting an object standalone
-    (without its parent in the selection), Blender's glTF exporter bakes the
-    object's *world* transform onto the node — verified by decoding the
-    exported node JSON directly. Leaving that in place would double-apply the
-    transform on top of what scene_graph.py sends, compounding position and
-    rotation.
+    """Exports `obj` (plus skin + animation, if it has an Armature modifier)
+    at the origin, via temporary duplicates so the originals are never
+    mutated. Duplicates share mesh/armature data, so this stays cheap.
 
-    Exports temporary duplicates rather than touching `obj` (or its armature)
-    itself — the originals' parenting/transform is never mutated, even
-    momentarily, so a crash mid-export can't leave them disturbed. Duplicates
-    share mesh/armature data (not a deep copy) so this stays cheap.
+    The origin reset is required: a standalone export bakes the object's
+    *world* transform onto the glTF node, which would double-apply on top of
+    scene_graph.py's transform.
 
-    If `obj` is skinned, the armature modifier's target object must be
-    exported alongside it in the same call — exporting the mesh alone drops
-    the skin binding silently (the Armature modifier's target was never in
-    the export selection), and exporting the armature alone produces a skin
-    with no mesh node referencing it. Both duplicates are reparented to each
-    other (mirroring the real relationship) and the pair as a whole is reset
-    to the origin, on the duplicate *armature* — the duplicate mesh keeps its
-    real local-to-armature transform (`obj.matrix_local`) so the bind pose
-    isn't altered, matching what Blender's own exporter expects.
+    A skinned mesh must be exported together with its armature target, or
+    the skin binding is dropped silently. The duplicate pair is reparented
+    and the reset applies to the armature; the mesh keeps `obj.matrix_local`
+    so the bind pose is unchanged.
     """
-    # Snapshot selection before creating the duplicate: obj.copy() also copies
-    # `obj`'s selected-state, so a snapshot taken after linking it could pick
-    # the duplicate up as though it were part of the original selection.
+    # Snapshot before obj.copy(): the copy inherits obj's selected state and
+    # would otherwise be restored as part of the original selection.
     original_selection = list(bpy.context.selected_objects)
     original_active = bpy.context.view_layer.objects.active
 
@@ -88,12 +68,9 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
 
     bpy.context.collection.objects.link(duplicate)
 
-    # Blender's glTF exporter determines root/parent nodes from the evaluated
-    # depsgraph (tree.py's construct()), which doesn't pick up an in-script
-    # reparent (duplicate.parent = duplicate_armature, above) until the view
-    # layer is explicitly updated — without this, the exporter treats
-    # `duplicate` as parentless and silently drops the skin. Verified by
-    # decoding the exported glb with and without this call.
+    # The exporter reads parenting from the evaluated depsgraph (tree.py's
+    # construct()), which misses the in-script reparent above until the view
+    # layer updates — otherwise the skin is dropped silently.
     bpy.context.view_layer.update()
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -102,24 +79,14 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
         duplicate_armature.select_set(True)
     bpy.context.view_layer.objects.active = duplicate
 
-    # Must run with `duplicate` already the sole selected+active object (bake
-    # needs both) but before export. flatten_incompatible_surfaces runs
-    # first — see its own doc comment for why: a material whose Surface
-    # isn't a single Principled BSDF at all (a Mix Shader blend, this
-    # scene's own Mat_Iron_Rusty/Mat_Copper_Patina) has to become one before
-    # bake_procedural_channels' own per-channel logic has anything to find.
-    # bake_procedural_channels itself handles glTF's other real gap — no
-    # procedural Base Color/Roughness/Normal/Emission graph, and Blender's
-    # own exporter has no option to bake one itself (material_bake.py's own
-    # doc comment). approximate_volume_materials handles the third thing
-    # glTF can't carry at all — a Volume shader — see material_volume.py.
+    # Needs `duplicate` as the sole selected+active object (bake requires
+    # both). Order matters: flatten first turns a non-Principled Surface
+    # (e.g. a Mix Shader) into one Principled for bake to work on.
     flattened_materials = flatten_incompatible_surfaces(duplicate)
     baked_materials = bake_procedural_channels(duplicate)
     volume_materials = approximate_volume_materials(duplicate)
-    # Captured *after* all three: any of them may have swapped duplicate.data
-    # for an independent copy (see their own doc comments) — this is
-    # whichever mesh datablock duplicate actually ends up exported with, the
-    # one cleanup_duplicate_mesh needs to check, not obj's own original.
+    # Captured after all three: any of them may swap duplicate.data for an
+    # independent copy, which cleanup_duplicate_mesh must then free.
     duplicate_mesh_data = duplicate.data
 
     try:
@@ -131,11 +98,8 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
                 use_selection=True,
                 export_apply=True,
                 export_yup=False,
-                # Explicit, not left to the operator's own default: bakes the
-                # armature's currently-assigned action only (not unrelated
-                # NLA tracks/orphaned actions elsewhere in the file that
-                # happen to be bone-compatible — the default ACTIONS mode
-                # would pull those in too).
+                # Only the armature's assigned action; the default ACTIONS
+                # mode also pulls in any bone-compatible action in the file.
                 export_animations=True,
                 export_animation_mode="ACTIVE_ACTIONS",
             )

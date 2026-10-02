@@ -1,35 +1,35 @@
 # File Structure — 3d-art-plugin
 
-Read this on demand when navigating this repo's codebase or deciding where a new file belongs.
-
----
+Load when navigating `art3d_sync/` or deciding where a new file belongs (placement rule: one `*_operators.py` + `*_sync.py` pair per sync concern — `CLAUDE.md`'s Conventions).
 
 ```
-art3d_sync/                     # addon package — name must be a valid Python
-│                                # identifier (no hyphens, no leading digit),
-│                                # since Blender imports it as a module
-├── __init__.py                 # bl_info + register()/unregister()
-├── panel.py                    # N-panel UI, sectioned: Project / General Settings / Objects / Lighting / Camera
+art3d_sync/                      # addon package (naming rule: CLAUDE.md)
+├── __init__.py                  # bl_info + register()/unregister()
+├── panel.py                     # N-panel tab "3D Art": Project / General Settings / Objects / Lighting / Camera
 ├── constants.py                 # SERVER_URL, DEV_TOKEN — shared by all operator modules
-├── operators.py                # ART3D_OT_send_scene (scope: 'selected'|'all') — orchestrates, emits
-├── world_operators.py          # ART3D_OT_send_world — orchestrates, emits "blender-world-sync"
-├── world_sync.py               # Reads the active World's Sky Texture node → plain-dict sky payload
-├── world_hdri_operators.py     # ART3D_OT_send_world_hdri — orchestrates, emits "blender-world-hdri-sync"
-├── world_hdri_sync.py          # build_world_hdri_sync()/describe_world_hdri_source() — sends the World's Environment Texture image (re-encoded to Radiance HDR) verbatim, or bakes the procedural Sky Texture into an equirectangular HDRI if none is assigned
-├── light_operators.py          # ART3D_OT_send_lighting (scope: 'selected'|'all') — orchestrates, emits "blender-lighting-sync"
-├── light_sync.py               # Walks Light objects → plain-dict payload, light-data only (color/energy/shadow/...), keyed by the same stable id as scene_graph.py — never resends position/direction
-├── render_settings_operators.py # ART3D_OT_send_render_settings — orchestrates, emits "blender-render-settings-sync"
-├── render_settings_sync.py     # Reads scene.view_settings (exposure/view transform/look) → plain-dict payload
-├── camera_operators.py         # ART3D_OT_send_camera (scope: 'selected'|'all') — orchestrates, emits "blender-camera-sync"
-├── camera_sync.py              # Walks Camera objects → plain-dict payload, optics only (lens/sensor/clip/ortho) — no transform, that's scene_graph.py's job
-├── scene_graph.py              # Walks selection/scene → objects[] payload entries (id, name, parentId, transform, real obj.type); build_delete_entries() builds the {id, action:'delete'} entries for ids sent_ids.py finds missing
-├── object_id.py                # resolve_stable_ids(objects) — batch-resolves a whole sync call's persistent per-object UUIDs at once (custom property `art3d_id`, survives renames), so a duplicate/copy-paste colliding with its original is decided deterministically (by name) instead of by call order; used by scene_graph.py, light_sync.py, camera_sync.py. get_existing_id(obj) is the same lookup without generating a new id, for sent_ids.py's delete-diff
-├── sent_ids.py                 # get/set the set of object ids the last successful blender-sync send included (Scene custom property `art3d_sent_ids`) — operators.py diffs this against the current scene to detect deletions
-├── project.py                  # get_project_id(context) — Scene property (art3d_project_id), required by every send operator before it runs
-├── gltf_exporter.py            # One object → .glb bytes, via a temp unparented/identity-transform duplicate
-└── socket_client.py            # stdlib-only Engine.IO/Socket.IO polling client — emit_once()'s `auth` param carries {token, projectId} in the CONNECT packet
+├── project.py                   # get_project_id(context) — Scene property art3d_project_id; every send operator refuses to run without it
+├── operators.py                 # ART3D_OT_send_scene (scope 'selected'|'all') — emits "blender-sync", appends delete entries
+├── scene_graph.py               # objects → entries (id, name, parentId, action, real obj.type, transform from matrix_local, glb only for mesh-convertible types); build_delete_entries()
+├── gltf_exporter.py             # one object → .glb bytes via a temp unparented/identity-transform duplicate; runs the material_* preprocessing on it
+├── material_flatten.py          # Surface that isn't one directly-wired Principled BSDF (e.g. Mix Shader) → one synthetic Principled
+├── material_bake.py             # Cycles-bakes procedural Base Color/Roughness/Normal/Emission inputs to image textures (the exporter omits them otherwise)
+├── material_volume.py           # approximates Volume shaders (KHR_materials_volume nodes, or an alpha-blend fallback) — the exporter ignores the Volume socket
+├── shader_bake.py               # shared bake plumbing: find_principled_surface() (the Principled actually wired to Material Output), emission-rewire socket bake
+├── object_id.py                 # resolve_stable_ids(objects): batch-resolves `art3d_id` (custom property, survives renames) so a duplicate colliding with its original is decided deterministically by name; get_existing_id(obj) is the side-effect-free lookup for the delete diff
+├── sent_ids.py                  # ids included in the last successful blender-sync (Scene property art3d_sent_ids) — operators.py diffs it to detect deletions
+├── world_operators.py           # ART3D_OT_send_world — emits "blender-world-sync"
+├── world_sync.py                # active World's Sky Texture node → sky payload
+├── world_hdri_operators.py      # ART3D_OT_send_world_hdri — emits "blender-world-hdri-sync"
+├── world_hdri_sync.py           # Material Preview's HDRI: the World's Environment Texture image re-encoded to Radiance HDR, or, if none is assigned, the Sky Texture baked to an equirect HDRI
+├── light_operators.py           # ART3D_OT_send_lighting (scope 'selected'|'all') — emits "blender-lighting-sync"
+├── light_sync.py                # Light objects → world-space position + unit direction (computed in Python), type/color/energyWatts/castShadow/shadowSoftSize/spot/area fields; same stable id as scene_graph.py
+├── render_settings_operators.py # ART3D_OT_send_render_settings — emits "blender-render-settings-sync"
+├── render_settings_sync.py      # exposure, viewTransform, resolutionX/Y (resolution only for the synced camera's aspect/FOV)
+├── camera_operators.py          # ART3D_OT_send_camera (scope 'selected'|'all') — emits "blender-camera-sync"
+├── camera_sync.py               # Camera objects → optics only (lens/sensor/clip/ortho); transform stays scene_graph.py's job
+└── socket_client.py             # stdlib-only Engine.IO/Socket.IO polling client — emit_once(..., auth={token, projectId}) sends auth in the CONNECT packet
 
-blender/                        # Small demo scenes/assets used to test and demonstrate sync — not addon source
+blender/                         # demo scenes/assets for testing sync — not addon source
 ```
 
-Ships zipped as `art3d_sync.zip`, installed via Blender's Preferences → Add-ons → Install from Disk (rebuild/reinstall discipline and the actual command: `CLAUDE.md`'s Critical Discipline). No pip install required — `socket_client.py` speaks the Engine.IO/Socket.IO v4 polling protocol directly over `urllib`, since Blender's bundled Python has no `python-socketio`/`websocket-client`. Each button press opens a short-lived polling session, connects, emits one `blender-sync` event, and lets the session expire — not a persistent connection. Timeout is 300s (`emit_once()`'s default) to comfortably fit a heavy single object's export+transfer — no caller overrides it.
+Shipped as `art3d_sync.zip` (gitignored, built locally) — rebuild/reinstall rule: `CLAUDE.md`'s Critical Discipline. Payload shapes, handshake and timeouts: [`../../docs/sync-protocol.md`](../../docs/sync-protocol.md).

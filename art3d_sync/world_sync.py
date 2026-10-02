@@ -1,7 +1,5 @@
-"""Reads the active World's Sky Texture node (Nishita / multiple-scattering —
-Blender's physically-based procedural sky) into a plain-dict payload. Mirrors
-scene_graph.py's approach: gather into plain data here, let the browser side
-decide how to apply it.
+"""Active World's Sky Texture node (Nishita / MULTIPLE_SCATTERING) → plain-dict
+payload.
 """
 
 import math
@@ -33,24 +31,15 @@ def build_world_sync(context: bpy.types.Context) -> dict | None:
     return {
         "sunElevationDeg": math.degrees(sky_node.sun_elevation),
         "sunRotationDeg": math.degrees(sky_node.sun_rotation),
-        # Real Nishita/multiple-scattering inputs (sky_node.sky_type for this
-        # node is "MULTIPLE_SCATTERING" — confirmed by introspecting the live
-        # node, not assumed). "turbidity" is a property that exists on this
-        # node class but Blender only actually uses it for the PREETHAM/
-        # HOSEK_WILKIE sky_type — it plays no role in MULTIPLE_SCATTERING's
-        # own computation, so it's deliberately not sent; these fields below
-        # are the ones Blender's Nishita model actually reads.
+        # The inputs MULTIPLE_SCATTERING actually reads. `turbidity` is
+        # PREETHAM/HOSEK_WILKIE-only, so it isn't sent.
         "sunSizeRad": sky_node.sun_size,
         "sunIntensity": sky_node.sun_intensity,
         "airDensity": sky_node.air_density,
         "aerosolDensity": sky_node.aerosol_density,
         "ozoneDensity": sky_node.ozone_density,
         "altitudeM": sky_node.altitude,
-        # "groundAlbedo" (sky_node.ground_albedo) is deliberately NOT sent —
-        # confirmed by reading Blender's own MULTIPLE_SCATTERING sky_type C++
-        # source that this field is hardcoded to 0.3 there too, the node's
-        # own UI slider does nothing for this sky_type even in Blender
-        # itself. Not a browser-side limitation to work around — there is
-        # nothing real to sync. See CLAUDE.md's "Settings Display Model".
+        # `ground_albedo` isn't sent: Blender's MULTIPLE_SCATTERING source
+        # hardcodes it to 0.3, so the node's slider has no effect.
         "strength": strength,
     }

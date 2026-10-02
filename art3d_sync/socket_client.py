@@ -1,8 +1,6 @@
-"""Minimal Engine.IO v4 / Socket.IO v5 polling client.
-
-Uses only the Python standard library (urllib) so the addon works with
-Blender's bundled Python and needs no pip install. Good enough for a
-single fire-and-forget emit per button press; not a persistent connection.
+"""Minimal Engine.IO v4 / Socket.IO v5 polling client, stdlib-only so the addon
+needs no pip install in Blender's bundled Python. One emit per call, no
+persistent connection.
 """
 
 import json
@@ -31,10 +29,8 @@ def emit_once(
     sid = _parse_handshake_sid(handshake_raw)
     poll_url = f"{base_url}/socket.io/?EIO=4&transport=polling&sid={sid}"
 
-    # CONNECT (default namespace) — the auth object, if any, rides as this
-    # packet's JSON body (Socket.IO's own handshake.auth on the server side),
-    # same as socket.io-client's `io(url, { auth })` — see
-    # blender-sync.gateway.ts's handleConnection for what reads it.
+    # CONNECT (default namespace); `auth` rides as its JSON body and arrives
+    # as the server's handshake.auth, like socket.io-client's `io(url, { auth })`.
     connect_packet = "40" + (json.dumps(auth) if auth else "")
     try:
         _http_post(poll_url, connect_packet, timeout)

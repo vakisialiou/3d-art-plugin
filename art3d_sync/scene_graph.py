@@ -11,19 +11,13 @@ import bpy
 from .gltf_exporter import export_object_glb
 from .object_id import resolve_stable_ids
 
-# No Z-up/Y-up conversion here (or anywhere in this pipeline) — 3d-art-web's
-# whole scene is Z-up too (THREE.Object3D.DEFAULT_UP, see render.worker.ts),
-# matching Blender natively. Blender's own matrix_local is sent as-is.
+# matrix_local is sent as-is: the web scene is Z-up like Blender, no axis
+# conversion (see gltf_exporter.py).
 
-# Blender's own real glTF exporter (export_apply=True, see gltf_exporter.py)
-# evaluates any of these down to a real mesh at export time — confirmed by
-# real bpy export tests, not assumed from the type list alone. The rest of
-# Blender's Object.type enum either has no visible geometry of its own
-# (EMPTY/ARMATURE/LATTICE/LIGHT_PROBE/SPEAKER), is already synced through
-# its own dedicated channel (CAMERA/LIGHT — blender-camera-sync/
-# blender-lighting-sync), or genuinely doesn't convert to a mesh this way
-# (GREASEPENCIL/VOLUME/POINTCLOUD/CURVES-hair, verified the same way — would
-# need dedicated per-type handling this project has no real case for yet).
+# Types the glTF exporter (export_apply=True) evaluates to a mesh. The rest
+# have no geometry (EMPTY/ARMATURE/LATTICE/LIGHT_PROBE/SPEAKER), sync on their
+# own channel (CAMERA/LIGHT), or don't convert (GREASEPENCIL/VOLUME/POINTCLOUD/
+# CURVES).
 _MESH_CONVERTIBLE_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT"}
 
 
@@ -68,16 +62,12 @@ def build_sync_objects(
                 "name": obj.name,
                 "parentId": resolved_ids[obj.parent.name] if parent_included else None,
                 "action": "update",
-                # Blender's real Object.type enum (rna_enum_object_type_items,
-                # source/blender/makesrna/intern/rna_object.cc) — sent verbatim,
-                # not translated. Drives the object-tree icon on the browser
-                # side (ui-kit/components/tree/icons), one real Blender
-                # outliner icon per real type value.
+                # Blender's Object.type enum (rna_enum_object_type_items,
+                # rna_object.cc), sent verbatim.
                 "type": obj.type,
                 "position": [location.x, location.y, location.z],
-                # Quaternion, not Euler: axis order ("XYZ" etc.) isn't guaranteed to mean
-                # the same thing in Blender's mathutils vs three.js — quaternions have no
-                # such ambiguity, and both compose with the same Hamilton product.
+                # Quaternion, not Euler: Euler order names ("XYZ" etc.) differ in
+                # meaning between mathutils and three.js; quaternions don't.
                 "rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
                 "scale": [scale.x, scale.y, scale.z],
                 "glb": _export_glb_base64(obj) if obj.type in _MESH_CONVERTIBLE_TYPES else None,
@@ -92,7 +82,4 @@ def _export_glb_base64(obj: bpy.types.Object) -> str:
 
 
 def build_delete_entries(deleted_ids: set) -> list:
-    # Only `id`/`action` are meaningful for a delete — worker-render's
-    # applyBlenderSync never reads the rest for this action, so nothing else
-    # is sent (see ../../CLAUDE.md's "only send fields this app can apply").
     return [{"id": object_id, "action": "delete"} for object_id in deleted_ids]

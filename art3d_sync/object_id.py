@@ -1,9 +1,5 @@
-"""Stable per-object id, independent of `obj.name` (which the user can freely
-rename in Blender's outliner — that used to be the wire `id`, silently
-orphaning the object on the browser side on every rename).
-
-Stored as a custom property, so it persists in the .blend file across
-renames and reopens; generated once, on first use.
+"""Stable per-object id, independent of the renameable `obj.name`. Stored as
+a custom property, so it persists in the .blend across renames and reopens.
 """
 
 import uuid
@@ -15,36 +11,17 @@ _ID_PROP = "art3d_id"
 
 
 def resolve_stable_ids(objects: list) -> dict:
-    """Resolves every object's stable id for one sync batch, all at once —
-    the one entry point scene_graph.py uses for both an object's own `id`
-    and a parent's `parentId` lookup.
+    """Returns {obj.name: stable id} for one sync batch, generating ids where
+    missing.
 
-    Blender copies custom properties verbatim on duplicate/paste/append, so
-    a fresh duplicate can carry an exact copy of its original's art3d_id —
-    a non-empty id isn't proof it's unique. This function's per-object
-    predecessor checked that correctly but independently per object, so
-    whichever of a colliding pair got resolved *first* silently kept the
-    id — order depended on call sequence, not on which object actually
-    owned the id's browser-side history.
+    Blender copies custom properties verbatim on duplicate/paste/append, so a
+    duplicate can carry its original's art3d_id. All holders of an id are
+    resolved together: the name that sorts first keeps it (Blender suffixes
+    the duplicate's name, .001 etc., never the original's), the rest get
+    fresh ids — deterministic regardless of call order.
 
-    Resolved here as one batch instead: every object sharing an id is
-    looked at together, and the tiebreaker is deterministic — the one whose
-    name sorts first wins, since Blender always suffixes a duplicate's name
-    (.001, .002, ...) and never touches the original's, so the bare name
-    reliably sorts before any unrenamed copy of it.
-
-    Keyed by `obj.name` (unique across bpy.data.objects, enforced by
-    Blender itself) rather than Python object identity — bpy's RNA wrapper
-    objects aren't guaranteed to be the same Python instance across two
-    different access paths (this batch's own `objects` list vs the fresh
-    bpy.data.objects pass below), so `id(obj)` isn't a safe map key for "the
-    same Blender object" the way it would be for a plain Python object.
-
-    One pass over bpy.data.objects up front (not one scan per object) also
-    fixes a real O(n^2) cost on "Send All": the old per-object check scanned
-    every object in the whole .blend file on every single call, and every
-    object in a batch called it roughly twice (once for itself, once via a
-    sibling's parentId lookup).
+    Keyed by `obj.name`, not `id(obj)`: bpy RNA wrappers aren't the same
+    Python instance across access paths (`objects` vs bpy.data.objects).
     """
     holders_by_id: dict = {}
     for obj in bpy.data.objects:
@@ -81,8 +58,7 @@ def resolve_stable_ids(objects: list) -> dict:
 
 
 def get_existing_id(obj: bpy.types.Object) -> Optional[str]:
-    """Never generates one — used to inventory which objects already carry
-    an id, without side-effecting objects that were never sent (see
-    `sent_ids.py`'s delete-diff, and `resolve_stable_ids` above)."""
+    """Never generates one — safe for inventorying objects that were never
+    sent (operators.py's delete diff)."""
     existing = obj.get(_ID_PROP)
     return existing if isinstance(existing, str) and existing else None

@@ -1,10 +1,6 @@
-"""Walks Camera objects into a plain-dict payload. Mirrors light_sync.py's
-approach — optics only, keyed by the same stable id as the object/hierarchy
-sync (scene_graph.py), which already carries this same object's transform.
-Never resend position/rotation here — that duplication was a real bug for
-lights (transform drifted out of sync with the object/hierarchy channel).
-See CLAUDE.md's Settings Display Model for "the plugin only sends fields
-the browser side can actually apply".
+"""Camera objects → optics-only payload, keyed by the same stable id as
+scene_graph.py. Never send position/rotation here: the transform belongs to
+scene_graph.py's channel, and duplicating it lets the two drift apart.
 """
 
 import bpy
@@ -32,9 +28,7 @@ def build_camera_sync(objects: list) -> list:
                 "sensorWidthMm": camera.sensor_width,
                 "clipNearM": camera.clip_start,
                 "clipFarM": camera.clip_end,
-                # PANO has no three.js equivalent — treated as PERSP, same
-                # "closest real analog" call the sync-review card title already
-                # makes elsewhere rather than adding a third, unsupported mode.
+                # PANO has no three.js equivalent — sent as PERSP.
                 "isOrtho": camera.type == "ORTHO",
                 "orthoScaleM": camera.ortho_scale,
             }

@@ -45,9 +45,7 @@ class ART3D_OT_send_scene(bpy.types.Operator):
             else collect_all_scene_objects(context)
         )
 
-        # Deletion is scene-wide, independent of scope: an object gone from
-        # the whole scene since the last send is a delete regardless of
-        # whether this particular button press is "Selected" or "All".
+        # Deletion is scene-wide, independent of the Selected/All scope.
         current_scene_ids = {
             existing_id for obj in scene.objects if (existing_id := get_existing_id(obj)) is not None
         }

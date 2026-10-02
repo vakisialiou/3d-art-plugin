@@ -1,7 +1,6 @@
-"""Walks Light objects into a plain-dict payload. Mirrors scene_graph.py's
-approach (gather into plain data here, let the browser side decide how to
-apply it) but lights are a separate sync channel, not part of the object/
-hierarchy sync — position/direction travel in world space, not local-to-parent.
+"""Light objects → plain-dict payload for the separate lighting channel.
+The world-space position/direction are only a fallback placement: the browser
+takes the light's transform from scene_graph.py's entry once it arrives.
 """
 
 from mathutils import Vector
@@ -10,9 +9,7 @@ import bpy
 
 from .object_id import resolve_stable_ids
 
-# Blender lights point down their local -Z axis — sending a precomputed
-# world-space unit direction means the browser never has to redo this
-# quaternion math itself.
+# Blender lights point down their local -Z axis.
 _LOCAL_FORWARD = Vector((0.0, 0.0, -1.0))
 
 
@@ -33,22 +30,18 @@ def build_light_sync(objects: list) -> list:
         direction = (obj.matrix_world.to_quaternion() @ _LOCAL_FORWARD).normalized()
 
         entry = {
-            # Same stable id as the object/hierarchy sync (scene_graph.py) —
-            # this is the same Blender object, just walked by a second channel.
+            # Same stable id as scene_graph.py's entry for this object.
             "id": resolved_ids[obj.name],
             "type": light.type,  # 'POINT' | 'SUN' | 'SPOT' | 'AREA'
             "color": [light.color.r, light.color.g, light.color.b],
-            # Radiometric Watts (Blender) — the browser applies its own
-            # visually-tuned coefficient, not a physical lm/W conversion.
+            # Radiometric Watts; the browser applies its own tuned coefficient,
+            # not a physical lm/W conversion.
             "energyWatts": light.energy,
             "position": [world_position.x, world_position.y, world_position.z],
             "direction": [direction.x, direction.y, direction.z],
             "castShadow": light.use_shadow,
-            # Blender's actual shadow-softness control — a real light *size*
-            # (radius, in meters) for POINT/SPOT/AREA, an angular diameter
-            # (radians) for SUN. Both drive how soft/blurry Blender's own
-            # shadows are; sent as one field so the browser has a genuine
-            # per-light softness value to work from instead of a flat guess.
+            # Radius in meters for POINT/SPOT/AREA, angular diameter in
+            # radians for SUN — Blender's shadow-softness control either way.
             "shadowSoftSize": light.angle if light.type == "SUN" else light.shadow_soft_size,
             "spotAngleRad": light.spot_size if light.type == "SPOT" else None,
             "spotBlend": light.spot_blend if light.type == "SPOT" else None,
