@@ -163,27 +163,27 @@ def _build_flat_principled(
     return material
 
 
-def flatten_incompatible_surfaces(duplicate: bpy.types.Object) -> list:
+def flatten_incompatible_surfaces(duplicate: bpy.types.Object, created: list) -> None:
     """Swaps each slot material on `duplicate` whose Surface isn't a single
     Principled BSDF for a baked single-Principled one. `duplicate` must be the
     sole selected + active object; run before bake_procedural_channels and
     approximate_volume_materials.
 
     Copies `duplicate.data` first if it's still shared (`users > 1`).
-    Returns the new materials for cleanup_baked_materials().
+    Appends each material it creates to `created` the moment it exists, for
+    cleanup_baked_materials() — even if a later bake raises.
     """
     if duplicate.type != "MESH":
-        return []
+        return
     if not any(_needs_flatten(slot.material) for slot in duplicate.material_slots):
-        return []
+        return
     if not duplicate.data.uv_layers:
         # No UVs to bake into — export as-is rather than fail the object.
-        return []
+        return
 
     if duplicate.data.users > 1:
         duplicate.data = duplicate.data.copy()
 
-    flattened_materials = []
     original_active_index = duplicate.active_material_index
     try:
         for index, slot in enumerate(duplicate.material_slots):
@@ -192,7 +192,9 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object) -> list:
 
             # Transient copy, in the slot only so the bake targets it; removed
             # after baking (its images live on in the synthetic material).
+            # Tracked until then, so a failed bake still frees its images.
             bake_source = slot.material.copy()
+            created.append(bake_source)
             duplicate.data.materials[index] = bake_source
             duplicate.active_material_index = index
 
@@ -214,10 +216,9 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object) -> list:
             new_material = _build_flat_principled(
                 f"{bake_source.name}_flattened", base_color, roughness, normal, emission, metallic
             )
+            created.append(new_material)
+            created.remove(bake_source)
             bpy.data.materials.remove(bake_source)
             duplicate.data.materials[index] = new_material
-            flattened_materials.append(new_material)
     finally:
         duplicate.active_material_index = original_active_index
-
-    return flattened_materials

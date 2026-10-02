@@ -175,28 +175,29 @@ def _bake_emission_channel(
     strength_input.default_value = 1.0
 
 
-def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
+def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None:
     """Bakes graph-driven Base Color/Roughness/Normal/Emission inputs into
     image textures, on a per-slot material copy. `duplicate` must be the sole
     selected + active object.
 
-    `duplicate.data` is copied only once some slot needs baking, so objects
-    without procedural materials keep the cheap shared mesh; the original
-    object's data is never touched.
+    `duplicate.data` is copied only once some slot needs baking, and only if
+    still shared (`users > 1`), so objects without procedural materials keep
+    the cheap shared mesh; the original object's data is never touched.
 
-    Returns the material copies for cleanup_baked_materials().
+    Appends each material copy to `created` the moment it exists, for
+    cleanup_baked_materials() — even if a later bake raises.
     """
     if duplicate.type != "MESH":
-        return []
+        return
     if not any(_needs_bake(slot.material) for slot in duplicate.material_slots):
-        return []
+        return
     if not duplicate.data.uv_layers:
         # No UVs to bake into — export as-is rather than fail the object.
-        return []
+        return
 
-    duplicate.data = duplicate.data.copy()
+    if duplicate.data.users > 1:
+        duplicate.data = duplicate.data.copy()
 
-    baked_materials = []
     original_active_index = duplicate.active_material_index
     original_engine = bpy.context.scene.render.engine
     original_samples = bpy.context.scene.cycles.samples
@@ -208,6 +209,7 @@ def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
                 continue
 
             new_material = slot.material.copy()
+            created.append(new_material)
             duplicate.data.materials[index] = new_material
             duplicate.active_material_index = index
             principled = find_principled_surface(new_material)
@@ -244,14 +246,10 @@ def bake_procedural_channels(duplicate: bpy.types.Object) -> list:
                 _bake_emission_channel(
                     new_material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}"
                 )
-
-            baked_materials.append(new_material)
     finally:
         bpy.context.scene.render.engine = original_engine
         bpy.context.scene.cycles.samples = original_samples
         duplicate.active_material_index = original_active_index
-
-    return baked_materials
 
 
 def cleanup_baked_materials(materials: list) -> None:

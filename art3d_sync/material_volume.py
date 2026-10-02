@@ -255,32 +255,33 @@ def _build_flat_alpha_approximation(material: bpy.types.Material, thickness: flo
     _apply_volume_emission(material, vol_node, image_prefix)
 
 
-def approximate_volume_materials(duplicate: bpy.types.Object) -> list:
+def approximate_volume_materials(duplicate: bpy.types.Object, created: list) -> None:
     """Adds a glTF representation (module docstring) for each slot material on
     `duplicate` with a volume shader, on a per-slot material copy. `duplicate`
     must be the sole selected + active object.
 
     Copies `duplicate.data` only if still shared (`users > 1`), so it's
-    correct whichever preprocessing step copied it first. Returns the
-    material copies for cleanup_baked_materials().
+    correct whichever preprocessing step copied it first. Appends each
+    material copy to `created` the moment it exists, for
+    cleanup_baked_materials() — even if a later bake raises.
     """
     if duplicate.type != "MESH":
-        return []
+        return
     if not any(is_volume_material(slot.material) for slot in duplicate.material_slots):
-        return []
+        return
 
     if duplicate.data.users > 1:
         duplicate.data = duplicate.data.copy()
 
     thickness = max(duplicate.dimensions)
 
-    volume_materials = []
     original_active_index = duplicate.active_material_index
     for index, slot in enumerate(duplicate.material_slots):
         if not is_volume_material(slot.material):
             continue
 
         new_material = slot.material.copy()
+        created.append(new_material)
         duplicate.data.materials[index] = new_material
         duplicate.active_material_index = index
 
@@ -289,7 +290,5 @@ def approximate_volume_materials(duplicate: bpy.types.Object) -> list:
             _add_volume_extension_nodes(new_material, thickness, image_prefix)
         else:
             _build_flat_alpha_approximation(new_material, thickness, image_prefix)
-        volume_materials.append(new_material)
 
     duplicate.active_material_index = original_active_index
-    return volume_materials
