@@ -121,17 +121,16 @@ def _bake_metallic(material: bpy.types.Material, image_name: str) -> Optional[bp
 
 
 def _build_flat_principled(
-    name: str,
+    material: bpy.types.Material,
     base_color: bpy.types.Image,
     roughness: bpy.types.Image,
     normal: bpy.types.Image,
     emission: bpy.types.Image,
     metallic: Optional[bpy.types.Image],
-) -> bpy.types.Material:
-    """Always a brand-new material: rebuilding the bake source's tree in place
-    zeroes the baked images once their Image Texture nodes are removed.
+) -> None:
+    """Fills a brand-new `material`: rebuilding the bake source's tree in
+    place zeroes the baked images once their Image Texture nodes are removed.
     `use_nodes = True` creates the Principled + Output pair reused here."""
-    material = bpy.data.materials.new(name)
     material.use_nodes = True
     tree = material.node_tree
     principled = next(n for n in tree.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled")
@@ -159,8 +158,6 @@ def _build_flat_principled(
         _wire_image(metallic, "Metallic", "Non-Color")
     else:
         principled.inputs["Metallic"].default_value = 0.0
-
-    return material
 
 
 def flatten_incompatible_surfaces(duplicate: bpy.types.Object, created: list) -> None:
@@ -213,10 +210,11 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object, created: list) ->
             )
             metallic = _bake_metallic(bake_source, f"{prefix}_metallic")
 
-            new_material = _build_flat_principled(
-                f"{bake_source.name}_flattened", base_color, roughness, normal, emission, metallic
-            )
+            # Tracked before it's built, so a build that raises midway
+            # doesn't leak it.
+            new_material = bpy.data.materials.new(f"{bake_source.name}_flattened")
             created.append(new_material)
+            _build_flat_principled(new_material, base_color, roughness, normal, emission, metallic)
             created.remove(bake_source)
             bpy.data.materials.remove(bake_source)
             duplicate.data.materials[index] = new_material
