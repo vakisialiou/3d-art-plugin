@@ -48,48 +48,50 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
 
     duplicate = obj.copy()
     duplicate_armature = None
-
-    if armature is not None:
-        duplicate_armature = armature.copy()
-        duplicate_armature.parent = None
-        duplicate_armature.matrix_basis = Matrix.Identity(4)
-        bpy.context.collection.objects.link(duplicate_armature)
-
-        for modifier in duplicate.modifiers:
-            if modifier.type == "ARMATURE" and modifier.object == armature:
-                modifier.object = duplicate_armature
-
-        duplicate.parent = duplicate_armature
-        duplicate.matrix_parent_inverse = Matrix.Identity(4)
-        duplicate.matrix_basis = obj.matrix_local
-    else:
-        duplicate.parent = None
-        duplicate.matrix_basis = Matrix.Identity(4)
-
-    bpy.context.collection.objects.link(duplicate)
-
-    # The exporter reads parenting from the evaluated depsgraph (tree.py's
-    # construct()), which misses the in-script reparent above until the view
-    # layer updates — otherwise the skin is dropped silently.
-    bpy.context.view_layer.update()
-
-    bpy.ops.object.select_all(action="DESELECT")
-    duplicate.select_set(True)
-    if duplicate_armature is not None:
-        duplicate_armature.select_set(True)
-    bpy.context.view_layer.objects.active = duplicate
-
-    # Needs `duplicate` as the sole selected+active object (bake requires
-    # both). Order matters: flatten first turns a non-Principled Surface
-    # (e.g. a Mix Shader) into one Principled for bake to work on.
-    flattened_materials = flatten_incompatible_surfaces(duplicate)
-    baked_materials = bake_procedural_channels(duplicate)
-    volume_materials = approximate_volume_materials(duplicate)
-    # Captured after all three: any of them may swap duplicate.data for an
-    # independent copy, which cleanup_duplicate_mesh must then free.
-    duplicate_mesh_data = duplicate.data
+    # Each preprocessing step appends a material the moment it creates it, so
+    # cleanup also covers a step that raised partway through.
+    preprocessed_materials = []
 
     try:
+        if armature is not None:
+            duplicate_armature = armature.copy()
+            duplicate_armature.parent = None
+            duplicate_armature.matrix_basis = Matrix.Identity(4)
+            bpy.context.collection.objects.link(duplicate_armature)
+
+            for modifier in duplicate.modifiers:
+                if modifier.type == "ARMATURE" and modifier.object == armature:
+                    modifier.object = duplicate_armature
+
+            duplicate.parent = duplicate_armature
+            duplicate.matrix_parent_inverse = Matrix.Identity(4)
+            duplicate.matrix_basis = obj.matrix_local
+        else:
+            duplicate.parent = None
+            duplicate.matrix_basis = Matrix.Identity(4)
+
+        bpy.context.collection.objects.link(duplicate)
+
+        # The exporter reads parenting from the evaluated depsgraph (tree.py's
+        # construct()), which misses the in-script reparent above until the
+        # view layer updates — otherwise the skin is dropped silently.
+        bpy.context.view_layer.update()
+
+        bpy.ops.object.select_all(action="DESELECT")
+        duplicate.select_set(True)
+        bpy.context.view_layer.objects.active = duplicate
+
+        # Needs `duplicate` as the sole selected+active object (bake requires
+        # both, and rejects a selected non-mesh such as the armature). Order
+        # matters: flatten first turns a non-Principled Surface (e.g. a Mix
+        # Shader) into one Principled for bake to work on.
+        flatten_incompatible_surfaces(duplicate, preprocessed_materials)
+        bake_procedural_channels(duplicate, preprocessed_materials)
+        approximate_volume_materials(duplicate, preprocessed_materials)
+
+        if duplicate_armature is not None:
+            duplicate_armature.select_set(True)
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             glb_path = os.path.join(tmp_dir, "object.glb")
             bpy.ops.export_scene.gltf(
@@ -106,7 +108,10 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
             with open(glb_path, "rb") as glb_file:
                 return glb_file.read()
     finally:
-        cleanup_baked_materials(flattened_materials + baked_materials + volume_materials)
+        cleanup_baked_materials(preprocessed_materials)
+        # Read only now: any preprocessing step may have swapped
+        # duplicate.data for an independent copy, even one that then raised.
+        duplicate_mesh_data = duplicate.data
         bpy.data.objects.remove(duplicate)
         cleanup_duplicate_mesh(duplicate_mesh_data)
         if duplicate_armature is not None:
