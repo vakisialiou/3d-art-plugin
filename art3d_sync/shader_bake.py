@@ -1,5 +1,5 @@
 """Shared Cycles-bake plumbing for material_bake.py, material_flatten.py and
-material_volume.py.
+material_volume.py (find_active_output() also serves world_sync.py).
 
 find_principled_surface() walks from Material Output's Surface input — never
 "the first Principled by type", which can pick a disconnected node or one half
@@ -19,15 +19,20 @@ BAKE_SAMPLES = 16
 _BAKE_IMAGE_TAG = "art3d_bake"
 
 
-def find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
+def find_active_output(node_tree: bpy.types.NodeTree, bl_idname: str) -> Optional[bpy.types.Node]:
+    """The active output node of type `bl_idname`, else the first one."""
     output = None
-    for node in material.node_tree.nodes:
-        if node.bl_idname == "ShaderNodeOutputMaterial":
+    for node in node_tree.nodes:
+        if node.bl_idname == bl_idname:
             if node.is_active_output:
                 return node
             if output is None:
                 output = node
     return output
+
+
+def find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
+    return find_active_output(material.node_tree, "ShaderNodeOutputMaterial")
 
 
 def find_principled_surface(
