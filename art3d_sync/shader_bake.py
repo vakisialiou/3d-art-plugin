@@ -83,6 +83,38 @@ class cycles_bake_settings:
         bpy.context.scene.cycles.samples = self._samples
 
 
+class coat_disabled:
+    """Context manager: zeroes (and unlinks) Principled's Coat Weight for the
+    bakes inside, restoring value and link (muted if it was) on exit, even if
+    a bake raises.
+
+    Cycles' bake passes don't isolate the base layer: NORMAL and ROUGHNESS
+    average every BSDF closure, the coat included
+    (surface_shader_average_normal/_roughness), and DIFFUSE COLOR / EMIT come
+    out attenuated and tinted by the coat (principled_bsdf_emission's
+    closure_layering_weight). The coat itself ships separately, as
+    KHR_materials_clearcoat."""
+
+    def __init__(self, principled: bpy.types.ShaderNodeBsdfPrincipled) -> None:
+        self._principled = principled
+
+    def __enter__(self) -> None:
+        weight = self._principled.inputs["Coat Weight"]
+        self._value = weight.default_value
+        link = weight.links[0] if weight.is_linked else None
+        self._from = link.from_socket if link is not None else None
+        self._muted = link is not None and link.is_muted
+        if link is not None:
+            self._principled.id_data.links.remove(link)
+        weight.default_value = 0.0
+
+    def __exit__(self, *exc_info: object) -> None:
+        weight = self._principled.inputs["Coat Weight"]
+        weight.default_value = self._value
+        if self._from is not None:
+            self._principled.id_data.links.new(self._from, weight).is_muted = self._muted
+
+
 def bake_socket_to_image_node(
     material: bpy.types.Material,
     output_socket: bpy.types.NodeSocket,

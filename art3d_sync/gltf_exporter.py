@@ -21,6 +21,7 @@ from .material_bake import (
     cleanup_baked_materials,
     cleanup_duplicate_mesh,
 )
+from .material_coat import collect_coat_extras, inject_coat_extras
 from .material_flatten import flatten_incompatible_surfaces
 from .material_volume import approximate_volume_materials
 
@@ -88,6 +89,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
         flatten_incompatible_surfaces(duplicate, preprocessed_materials)
         bake_procedural_channels(duplicate, preprocessed_materials)
         approximate_volume_materials(duplicate, preprocessed_materials)
+        coat_extras = collect_coat_extras(duplicate)
 
         if duplicate_armature is not None:
             duplicate_armature.select_set(True)
@@ -106,7 +108,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
                 export_animation_mode="ACTIVE_ACTIONS",
             )
             with open(glb_path, "rb") as glb_file:
-                return glb_file.read()
+                return inject_coat_extras(glb_file.read(), coat_extras)
     finally:
         cleanup_baked_materials(preprocessed_materials)
         # Read only now: any preprocessing step may have swapped

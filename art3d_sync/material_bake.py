@@ -13,14 +13,22 @@ baseColorFactor becomes glTF's default white, not the node's value).
   emission off the unmodified material — into Emission Color, Strength = 1.0.
 - Metallic: not baked — no dedicated bake pass. If a material needs it, bake
   via shader_bake.bake_socket_to_image_node.
+- Coat (only when the coat is on, `_coat_bakes`): no bake pass reads a coat
+  input, so Coat Weight / Coat Roughness bake via the Emission-rewire (as
+  floats, `_bake_coat_factor`), and Coat Normal via a NORMAL bake with its
+  source wired into Normal. The base channels above bake inside
+  shader_bake.coat_disabled — Cycles' passes would otherwise mix the coat
+  into them.
 """
 
 from typing import Optional
 
 import bpy
 
+from .material_coat import has_coat, inlined_principled
 from .shader_bake import (
     bake_socket_to_image_node,
+    coat_disabled,
     find_principled_surface,
     is_bake_image,
     new_bake_image,
@@ -80,6 +88,24 @@ def _needs_emission_bake(principled: bpy.types.ShaderNodeBsdfPrincipled) -> bool
     )
 
 
+def _coat_bakes(material: bpy.types.Material) -> list:
+    """The coat inputs to bake — none while the coat is off. Judged on the
+    inlined tree the exporter reads (material_coat.inlined_principled): an
+    input behind a muted link or a folded constant exports as a factor."""
+    with inlined_principled(material) as principled:
+        if principled is None or not has_coat(principled):
+            return []
+        return [
+            name
+            for name, needs_bake in (
+                ("Coat Weight", _needs_factor_bake),
+                ("Coat Roughness", _needs_factor_bake),
+                ("Coat Normal", _needs_normal_bake),
+            )
+            if needs_bake(principled.inputs.get(name))
+        ]
+
+
 def _needs_bake(material: Optional[bpy.types.Material]) -> bool:
     if material is None:
         return False
@@ -91,6 +117,7 @@ def _needs_bake(material: Optional[bpy.types.Material]) -> bool:
         or _needs_factor_bake(principled.inputs.get("Roughness"))
         or _needs_normal_bake(principled.inputs.get("Normal"))
         or _needs_emission_bake(principled)
+        or bool(_coat_bakes(material))
     )
 
 
@@ -128,11 +155,10 @@ def _bake_factor_channel(
     material.node_tree.links.new(image_node.outputs["Color"], principled.inputs[input_name])
 
 
-def _bake_normal_channel(
-    material: bpy.types.Material,
-    principled: bpy.types.ShaderNodeBsdfPrincipled,
-    image_name: str,
-) -> None:
+def _bake_tangent_normal(
+    material: bpy.types.Material, image_name: str
+) -> bpy.types.ShaderNodeTexImage:
+    """Bakes what Principled's Normal input resolves to."""
     image = new_bake_image(image_name, "Non-Color")
     _activate_bake_target(material, image)
     # Tangent space, R=+X/G=+Y/B=+Z is glTF's normalTexture convention
@@ -146,13 +172,27 @@ def _bake_normal_channel(
         margin=4,
     )
     image.pack()
-    image_node = material.node_tree.nodes.active
+    return material.node_tree.nodes.active
+
+
+def _link_normal_map(
+    material: bpy.types.Material, image_node: bpy.types.ShaderNodeTexImage, target_socket
+) -> None:
     # The Normal Map node decodes 0..1 RGB to a tangent-space normal — the
-    # chain the exporter recognizes natively.
+    # chain the exporter recognizes natively (for Coat Normal too).
     normal_map_node = material.node_tree.nodes.new("ShaderNodeNormalMap")
     normal_map_node.space = "TANGENT"
     material.node_tree.links.new(image_node.outputs["Color"], normal_map_node.inputs["Color"])
-    material.node_tree.links.new(normal_map_node.outputs["Normal"], principled.inputs["Normal"])
+    material.node_tree.links.new(normal_map_node.outputs["Normal"], target_socket)
+
+
+def _bake_normal_channel(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    image_name: str,
+) -> None:
+    image_node = _bake_tangent_normal(material, image_name)
+    _link_normal_map(material, image_node, principled.inputs["Normal"])
 
 
 def _bake_emission_channel(
@@ -175,10 +215,112 @@ def _bake_emission_channel(
     strength_input.default_value = 1.0
 
 
+def _bake_coat_factor(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    input_name: str,
+    image_name: str,
+) -> None:
+    """Bakes through a Math node (add 0) so a Color or Vector source turns
+    into the float Blender itself shades with — Cycles' svm_node_convert:
+    luminance / average. Emission Color alone would keep its RGB, and glTF
+    reads a single channel of the image. Gated by `_coat_bakes`, so the
+    input's link is live."""
+    tree = material.node_tree
+    socket = principled.inputs[input_name]
+    as_float = tree.nodes.new("ShaderNodeMath")
+    as_float.operation = "ADD"
+    as_float.inputs[1].default_value = 0.0
+    tree.links.new(socket.links[0].from_socket, as_float.inputs[0])
+    try:
+        image_node = bake_socket_to_image_node(
+            material, as_float.outputs["Value"], image_name, "Non-Color"
+        )
+    finally:
+        tree.nodes.remove(as_float)
+    tree.links.new(image_node.outputs["Color"], socket)
+
+
+def _bake_coat_normal(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    image_name: str,
+) -> None:
+    """The NORMAL pass reads Normal, so Coat Normal's (live, `_coat_bakes`)
+    source stands in for it during the bake (coat off, so only that normal is
+    averaged in); Normal's own link is restored after, muted if it was."""
+    links = material.node_tree.links
+    normal = principled.inputs["Normal"]
+    original = normal.links[0] if normal.is_linked else None
+    original_from = original.from_socket if original is not None else None
+    original_muted = original is not None and original.is_muted
+    links.new(principled.inputs["Coat Normal"].links[0].from_socket, normal)
+    try:
+        with coat_disabled(principled):
+            image_node = _bake_tangent_normal(material, image_name)
+    finally:
+        if original_from is not None:
+            links.new(original_from, normal).is_muted = original_muted
+        else:
+            links.remove(normal.links[0])
+    _link_normal_map(material, image_node, principled.inputs["Coat Normal"])
+
+
+def _bake_base_channels(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    index: int,
+) -> None:
+    if _needs_factor_bake(principled.inputs.get("Base Color")):
+        _bake_factor_channel(
+            material,
+            principled,
+            "Base Color",
+            "DIFFUSE",
+            {"COLOR"},
+            f"{_BAKE_IMAGE_PREFIX}_basecolor_{index}",
+            "sRGB",
+        )
+
+    if _needs_factor_bake(principled.inputs.get("Roughness")):
+        _bake_factor_channel(
+            material,
+            principled,
+            "Roughness",
+            "ROUGHNESS",
+            set(),
+            f"{_BAKE_IMAGE_PREFIX}_roughness_{index}",
+            "Non-Color",
+        )
+
+    if _needs_normal_bake(principled.inputs.get("Normal")):
+        _bake_normal_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_normal_{index}")
+
+    if _needs_emission_bake(principled):
+        _bake_emission_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}")
+
+
+def _bake_coat_channels(
+    material: bpy.types.Material,
+    principled: bpy.types.ShaderNodeBsdfPrincipled,
+    index: int,
+    coat_bakes: list,
+) -> None:
+    for input_name, suffix in (("Coat Weight", "coat_weight"), ("Coat Roughness", "coat_roughness")):
+        if input_name in coat_bakes:
+            _bake_coat_factor(
+                material, principled, input_name, f"{_BAKE_IMAGE_PREFIX}_{suffix}_{index}"
+            )
+
+    if "Coat Normal" in coat_bakes:
+        _bake_coat_normal(material, principled, f"{_BAKE_IMAGE_PREFIX}_coat_normal_{index}")
+
+
 def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None:
-    """Bakes graph-driven Base Color/Roughness/Normal/Emission inputs into
-    image textures, on a per-slot material copy. `duplicate` must be the sole
-    selected + active object.
+    """Bakes graph-driven Base Color/Roughness/Normal/Emission (and, with the
+    coat on, Coat Weight/Roughness/Normal) inputs into image textures, on a
+    per-slot material copy. `duplicate` must be the sole selected + active
+    object.
 
     `duplicate.data` is copied only once some slot needs baking, and only if
     still shared (`users > 1`), so objects without procedural materials keep
@@ -213,39 +355,11 @@ def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None
             duplicate.data.materials[index] = new_material
             duplicate.active_material_index = index
             principled = find_principled_surface(new_material)
+            coat_bakes = _coat_bakes(new_material)
 
-            base_color = principled.inputs.get("Base Color")
-            if _needs_factor_bake(base_color):
-                _bake_factor_channel(
-                    new_material,
-                    principled,
-                    "Base Color",
-                    "DIFFUSE",
-                    {"COLOR"},
-                    f"{_BAKE_IMAGE_PREFIX}_basecolor_{index}",
-                    "sRGB",
-                )
-
-            roughness = principled.inputs.get("Roughness")
-            if _needs_factor_bake(roughness):
-                _bake_factor_channel(
-                    new_material,
-                    principled,
-                    "Roughness",
-                    "ROUGHNESS",
-                    set(),
-                    f"{_BAKE_IMAGE_PREFIX}_roughness_{index}",
-                    "Non-Color",
-                )
-
-            normal = principled.inputs.get("Normal")
-            if _needs_normal_bake(normal):
-                _bake_normal_channel(new_material, principled, f"{_BAKE_IMAGE_PREFIX}_normal_{index}")
-
-            if _needs_emission_bake(principled):
-                _bake_emission_channel(
-                    new_material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}"
-                )
+            with coat_disabled(principled):
+                _bake_base_channels(new_material, principled, index)
+            _bake_coat_channels(new_material, principled, index, coat_bakes)
     finally:
         bpy.context.scene.render.engine = original_engine
         bpy.context.scene.cycles.samples = original_samples
