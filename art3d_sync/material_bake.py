@@ -14,10 +14,11 @@ baseColorFactor becomes glTF's default white, not the node's value).
 - Metallic: not baked — no dedicated bake pass. If a material needs it, bake
   via shader_bake.bake_socket_to_image_node.
 - Coat (only when the coat is on, material_coat.has_coat): no bake pass reads
-  a coat input, so Coat Weight / Coat Roughness bake via the Emission-rewire,
-  and Coat Normal via a NORMAL bake with its source wired into Normal. The
-  base channels above bake inside shader_bake.coat_disabled — Cycles' passes
-  would otherwise mix the coat into them.
+  a coat input, so Coat Weight / Coat Roughness bake via the Emission-rewire
+  (as floats, `_bake_coat_factor`), and Coat Normal via a NORMAL bake with its
+  source wired into Normal. The base channels above bake inside
+  shader_bake.coat_disabled — Cycles' passes would otherwise mix the coat
+  into them.
 """
 
 from typing import Optional
@@ -205,20 +206,32 @@ def _bake_emission_channel(
     strength_input.default_value = 1.0
 
 
-def _bake_coat_factor_channel(
+def _bake_coat_factor(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     input_name: str,
     image_name: str,
 ) -> None:
+    """Bakes through a Math node (add 0) so a Color or Vector source turns
+    into the float Blender itself shades with — Cycles' svm_node_convert:
+    luminance / average. Emission Color alone would keep its RGB, and glTF
+    reads a single channel of the image."""
+    tree = material.node_tree
     socket = principled.inputs[input_name]
-    image_node = bake_socket_to_image_node(
-        material, socket.links[0].from_socket, image_name, "Non-Color"
-    )
-    material.node_tree.links.new(image_node.outputs["Color"], socket)
+    as_float = tree.nodes.new("ShaderNodeMath")
+    as_float.operation = "ADD"
+    as_float.inputs[1].default_value = 0.0
+    tree.links.new(socket.links[0].from_socket, as_float.inputs[0])
+    try:
+        image_node = bake_socket_to_image_node(
+            material, as_float.outputs["Value"], image_name, "Non-Color"
+        )
+    finally:
+        tree.nodes.remove(as_float)
+    tree.links.new(image_node.outputs["Color"], socket)
 
 
-def _bake_coat_normal_channel(
+def _bake_coat_normal(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     image_name: str,
@@ -282,14 +295,12 @@ def _bake_coat_channels(
 ) -> None:
     for input_name, suffix in (("Coat Weight", "coat_weight"), ("Coat Roughness", "coat_roughness")):
         if _needs_factor_bake(principled.inputs.get(input_name)):
-            _bake_coat_factor_channel(
+            _bake_coat_factor(
                 material, principled, input_name, f"{_BAKE_IMAGE_PREFIX}_{suffix}_{index}"
             )
 
     if _needs_normal_bake(principled.inputs.get("Coat Normal")):
-        _bake_coat_normal_channel(
-            material, principled, f"{_BAKE_IMAGE_PREFIX}_coat_normal_{index}"
-        )
+        _bake_coat_normal(material, principled, f"{_BAKE_IMAGE_PREFIX}_coat_normal_{index}")
 
 
 def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None:
