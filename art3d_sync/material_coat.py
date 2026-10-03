@@ -13,10 +13,10 @@ KHR_materials_clearcoat:
   extras on `material.userData`.
 - an omitted clearcoatRoughnessFactor is written back explicitly.
 
-Constants are read the way the exporter reads its own channels: off the
-material's InlineShaderNodes tree (node groups inlined, constant subgraphs
-folded), unlinked or fed straight by an RGB/Value node (search_node_tree's
-NodeNav.get_constant).
+Whether the coat is on, and its constants, are read the way the exporter
+reads its own channels: off the material's InlineShaderNodes tree
+(inlined_principled), a constant being unlinked or fed straight by an
+RGB/Value node (search_node_tree's NodeNav.get_constant).
 
 Not a glTF2ExportUserExtension hook: io_scene_gltf2 discovers those only on
 enabled add-ons (and would then also change the user's own File > Export).
@@ -24,7 +24,8 @@ enabled add-ons (and would then also change the user's own File > Export).
 
 import json
 import struct
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 import bpy
 
@@ -40,9 +41,23 @@ _TOLERANCE = 1e-6
 _CONSTANT_NODES = {"RGBA": "ShaderNodeRGB", "VALUE": "ShaderNodeValue"}
 
 
+@contextmanager
+def inlined_principled(
+    material: bpy.types.Material,
+) -> Iterator[Optional[bpy.types.ShaderNodeBsdfPrincipled]]:
+    """The Principled surface of the material's InlineShaderNodes tree (None
+    without one) — what Blender renders and its glTF exporter reads: node
+    groups inlined, muted links dropped, constant subgraphs folded. Read it
+    only inside the `with`: the tree is freed with `inline`, and a node read
+    after that crashes Blender."""
+    inline = bpy.types.InlineShaderNodes.from_material(material)
+    yield find_principled_surface(inline)
+
+
 def has_coat(principled: bpy.types.ShaderNodeBsdfPrincipled) -> bool:
-    """Coat Weight linked or above 0 — when the exporter writes the extension
-    (a linked weight once baked)."""
+    """On an inlined Principled (inlined_principled): Coat Weight linked or
+    above 0 — when the exporter writes the extension (a linked weight once
+    baked). A muted link or a constant 0 is no coat."""
     weight = principled.inputs["Coat Weight"]
     return weight.is_linked or weight.default_value > 0.0
 
@@ -67,26 +82,20 @@ def _is_default(value, default) -> bool:
 
 def _coat_layer(material: bpy.types.Material) -> Optional[dict]:
     """{"ior"?, "tint"?, "roughness"?} for a coated material, else None."""
-    principled = find_principled_surface(material)
-    if principled is None or not has_coat(principled):
-        return None
-    # Keep `inline` referenced while reading: it owns the inlined tree, which
-    # is freed with it (a node read after that crashes Blender).
-    inline = bpy.types.InlineShaderNodes.from_material(material)
-    inlined = find_principled_surface(inline)
-    if inlined is None:
-        return {}
-    coat = {}
-    ior = _constant(inlined.inputs["Coat IOR"])
-    if ior is not None and not _is_default(ior, _DEFAULT_IOR):
-        coat["ior"] = ior
-    tint = _constant(inlined.inputs["Coat Tint"])
-    if tint is not None and not _is_default(tint, _DEFAULT_TINT):
-        coat["tint"] = tint
-    roughness = _constant(inlined.inputs["Coat Roughness"])
-    if roughness is not None:
-        coat["roughness"] = roughness
-    return coat
+    with inlined_principled(material) as principled:
+        if principled is None or not has_coat(principled):
+            return None
+        coat = {}
+        ior = _constant(principled.inputs["Coat IOR"])
+        if ior is not None and not _is_default(ior, _DEFAULT_IOR):
+            coat["ior"] = ior
+        tint = _constant(principled.inputs["Coat Tint"])
+        if tint is not None and not _is_default(tint, _DEFAULT_TINT):
+            coat["tint"] = tint
+        roughness = _constant(principled.inputs["Coat Roughness"])
+        if roughness is not None:
+            coat["roughness"] = roughness
+        return coat
 
 
 def collect_coat_extras(duplicate: bpy.types.Object) -> dict:

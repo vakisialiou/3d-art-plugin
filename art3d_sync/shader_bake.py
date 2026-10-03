@@ -85,7 +85,8 @@ class cycles_bake_settings:
 
 class coat_disabled:
     """Context manager: zeroes (and unlinks) Principled's Coat Weight for the
-    bakes inside, restoring link and value on exit, even if a bake raises.
+    bakes inside, restoring value and link (muted if it was) on exit, even if
+    a bake raises.
 
     Cycles' bake passes don't isolate the base layer: NORMAL and ROUGHNESS
     average every BSDF closure, the coat included
@@ -100,16 +101,18 @@ class coat_disabled:
     def __enter__(self) -> None:
         weight = self._principled.inputs["Coat Weight"]
         self._value = weight.default_value
-        self._from = weight.links[0].from_socket if weight.is_linked else None
-        if self._from is not None:
-            self._principled.id_data.links.remove(weight.links[0])
+        link = weight.links[0] if weight.is_linked else None
+        self._from = link.from_socket if link is not None else None
+        self._muted = link is not None and link.is_muted
+        if link is not None:
+            self._principled.id_data.links.remove(link)
         weight.default_value = 0.0
 
     def __exit__(self, *exc_info: object) -> None:
         weight = self._principled.inputs["Coat Weight"]
         weight.default_value = self._value
         if self._from is not None:
-            self._principled.id_data.links.new(self._from, weight)
+            self._principled.id_data.links.new(self._from, weight).is_muted = self._muted
 
 
 def bake_socket_to_image_node(
