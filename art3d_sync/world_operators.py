@@ -5,7 +5,7 @@ import bpy
 from .constants import DEV_TOKEN, SERVER_URL
 from .project import get_project_id
 from .socket_client import SocketIOEmitError, emit_once
-from .world_sync import SUPPORTED_SKY_TYPES, build_world_sync, find_world_sky
+from .world_sync import SUPPORTED_SKY_TYPES, build_world_sync, emitter_strength, find_world_sky
 
 
 class ART3D_OT_send_world(bpy.types.Operator):
@@ -21,9 +21,9 @@ class ART3D_OT_send_world(bpy.types.Operator):
 
         found = find_world_sky(context.scene.world)
         if found is None:
-            self.report({"WARNING"}, "World has no Sky Texture node to send")
+            self.report({"WARNING"}, "World has no Sky Texture connected to its output to send")
             return {"CANCELLED"}
-        sky, background = found
+        sky, emitter = found
         if sky.sky_type not in SUPPORTED_SKY_TYPES:
             self.report(
                 {"WARNING"},
@@ -31,8 +31,19 @@ class ART3D_OT_send_world(bpy.types.Operator):
                 "(Single/Multiple Scattering only)",
             )
             return {"CANCELLED"}
+        strength = emitter_strength(emitter)
+        if strength is None:
+            self.report(
+                {"WARNING"},
+                f"{emitter.name} Strength is driven by nodes the web viewer can't evaluate "
+                "(only a value or a Value node)",
+            )
+            return {"CANCELLED"}
 
-        payload = {"timestamp": int(time.time() * 1000), "sky": build_world_sync(sky, background)}
+        payload = {
+            "timestamp": int(time.time() * 1000),
+            "sky": build_world_sync(sky, strength, context.scene.render.engine),
+        }
 
         try:
             emit_once(

@@ -1,81 +1,137 @@
 """Active World's Sky Texture node (Nishita: Single or Multiple Scattering) →
 plain-dict payload.
 
-find_world_sky() walks from the active World Output: Surface → Background →
-Color → Sky Texture, so a disconnected or second Sky node isn't picked. Any
-other graph falls back to the first Sky node by type (and the walked Background,
-else the first one).
+find_world_sky() returns only a Sky the World really renders: it walks back
+from the active World Output's Surface along links as Blender evaluates them
+(Cycles' add_nodes(): invalid, muted and unavailable links are dropped; a
+muted node or reroute passes only its internal links, so a muted Background or
+Sky passes nothing) to a Background or Emission, then through its Color graph
+to the Sky. A color wired straight into Surface counts too: Blender converts
+it to an Emission of Strength 1. Nodes on the way (a Mix Shader, a Gamma) are
+not applied by the browser, which renders the Sky as if wired directly.
 """
 
 import math
 
 import bpy
 
+from .shader_bake import find_active_output
+
 _OUTPUT_NODE_TYPE = "ShaderNodeOutputWorld"
 _SKY_NODE_TYPE = "ShaderNodeTexSky"
-_BACKGROUND_NODE_TYPE = "ShaderNodeBackground"
+_VALUE_NODE_TYPE = "ShaderNodeValue"
+# Both turn Color * Strength into the World's radiance (Cycles' background_setup
+# and emission_setup are identical).
+_EMITTER_NODE_TYPES = {"ShaderNodeBackground", "ShaderNodeEmission"}
 
 # The two Nishita models the browser renders. PREETHAM/HOSEK_WILKIE (Blender's
 # "Legacy" types) are different analytic models and aren't sent.
 SUPPORTED_SKY_TYPES = {"SINGLE_SCATTERING", "MULTIPLE_SCATTERING"}
 
 
-def _linked_node(node: bpy.types.Node, input_name: str, bl_idname: str) -> bpy.types.Node | None:
-    socket = node.inputs.get(input_name)
-    if socket is None or not socket.is_linked:
+def _source(socket: bpy.types.NodeSocket) -> bpy.types.NodeSocket | None:
+    """The output socket `socket` reads, as Blender evaluates the tree."""
+    while True:
+        link = next(
+            (
+                link
+                for link in socket.links
+                if link.is_valid and not link.is_muted and link.from_socket.enabled
+            ),
+            None,
+        )
+        if link is None:
+            return None
+        output = link.from_socket
+        node = output.node
+        if not node.mute and node.bl_idname != "NodeReroute":
+            return output
+        through = next((link for link in node.internal_links if link.to_socket == output), None)
+        if through is None:
+            return None
+        socket = through.from_socket
+
+
+def _find_sky(output: bpy.types.NodeSocket) -> bpy.types.ShaderNodeTexSky | None:
+    """The first Sky Texture that is or feeds the color `output`, depth-first."""
+    node = output.node
+    # A shader can't feed a color: Cycles drops that link.
+    if output.type == "SHADER":
         return None
-    linked = socket.links[0].from_node
-    return linked if linked.bl_idname == bl_idname else None
+    if node.bl_idname == _SKY_NODE_TYPE:
+        return node
+    for socket in node.inputs:
+        source = _source(socket) if socket.enabled else None
+        sky = _find_sky(source) if source is not None else None
+        if sky is not None:
+            return sky
+    return None
 
 
-def _find_output(world: bpy.types.World) -> bpy.types.Node | None:
-    output = None
-    for node in world.node_tree.nodes:
-        if node.bl_idname == _OUTPUT_NODE_TYPE:
-            if node.is_active_output:
-                return node
-            if output is None:
-                output = node
-    return output
-
-
-def _first_by_type(world: bpy.types.World, bl_idname: str) -> bpy.types.Node | None:
-    return next((node for node in world.node_tree.nodes if node.bl_idname == bl_idname), None)
+def _find_emitted_sky(
+    surface: bpy.types.NodeSocket,
+) -> tuple[bpy.types.ShaderNodeTexSky, bpy.types.ShaderNode | None] | None:
+    """(sky, emitter) feeding the shader input `surface`; emitter None for a
+    color wired straight in."""
+    output = _source(surface)
+    if output is None:
+        return None
+    node = output.node
+    if output.type != "SHADER":
+        sky = _find_sky(output)
+        return (sky, None) if sky is not None else None
+    if node.bl_idname in _EMITTER_NODE_TYPES:
+        color = _source(node.inputs["Color"])
+        sky = _find_sky(color) if color is not None else None
+        return (sky, node) if sky is not None else None
+    # A Mix/Add Shader or a group: whichever of its shader inputs holds a sky.
+    for socket in node.inputs:
+        if socket.type == "SHADER" and socket.enabled:
+            found = _find_emitted_sky(socket)
+            if found is not None:
+                return found
+    return None
 
 
 def find_world_sky(
     world: bpy.types.World | None,
-) -> tuple[bpy.types.ShaderNodeTexSky, bpy.types.ShaderNodeBackground | None] | None:
-    """(sky, background), background None if there's none (Strength then
-    counts as 1). None if the World has no Sky Texture node."""
+) -> tuple[bpy.types.ShaderNodeTexSky, bpy.types.ShaderNode | None] | None:
+    """(sky, emitter): the Sky Texture the World renders and the Background
+    or Emission it feeds (None: wired straight into the output). None if no
+    Sky reaches the active World Output."""
     if world is None or world.node_tree is None:
         return None
-
-    output = _find_output(world)
-    background = _linked_node(output, "Surface", _BACKGROUND_NODE_TYPE) if output else None
-    sky = _linked_node(background, "Color", _SKY_NODE_TYPE) if background else None
-    if sky is not None:
-        return sky, background
-
-    sky = _first_by_type(world, _SKY_NODE_TYPE)
-    if sky is None:
+    output = find_active_output(world.node_tree, _OUTPUT_NODE_TYPE)
+    if output is None:
         return None
-    return sky, background or _first_by_type(world, _BACKGROUND_NODE_TYPE)
+    return _find_emitted_sky(output.inputs["Surface"])
 
 
-def build_world_sync(
-    sky: bpy.types.ShaderNodeTexSky, background: bpy.types.ShaderNodeBackground | None
-) -> dict:
+def emitter_strength(emitter: bpy.types.ShaderNode | None) -> float | None:
+    """The Strength Blender renders the sky at; None when a node graph other
+    than a Value node drives it, which the browser can't evaluate."""
+    if emitter is None:
+        return 1.0
+    socket = emitter.inputs["Strength"]
+    source = _source(socket)
+    if source is None:
+        return socket.default_value
+    if source.node.bl_idname == _VALUE_NODE_TYPE:
+        return source.default_value
+    return None
+
+
+def build_world_sync(sky: bpy.types.ShaderNodeTexSky, strength: float, engine: str) -> dict:
     """Every input the Nishita models read, for a SUPPORTED_SKY_TYPES sky.
     Not sent: `turbidity`, `ground_albedo` and `sun_direction`
     (PREETHAM/HOSEK_WILKIE only), `texture_mapping` (legacy, not in the UI),
     `color_mapping` (never applied to a sky) and a linked Vector input
     (unavailable with the sun disc on; node graphs can't be applied)."""
-    strength = background.inputs["Strength"].default_value if background else 1.0
-
     return {
         "skyType": sky.sky_type,
-        "sunDisc": sky.sun_disc,
+        # Only Cycles draws the disc (node_shader_tex_sky.cc: "Sun disc not
+        # available in EEVEE"), so elsewhere sun_disc changes nothing.
+        "sunDisc": sky.sun_disc and engine == "CYCLES",
         # Unwrapped, as stored: the browser applies Blender's own wrap.
         "sunElevationDeg": math.degrees(sky.sun_elevation),
         "sunRotationDeg": math.degrees(sky.sun_rotation),
