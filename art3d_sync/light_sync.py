@@ -8,15 +8,16 @@ temperature tint. normalize is sent instead of folded in: an unnormalized
 light's power follows its live area (BKE_light_area), which the browser
 edits too (size, scale, radius).
 
-Audited and not sent: spread, which EEVEE never reads;
-shadow_buffer_clip_start, which EEVEE reads only for light probes;
-use_shadow_jitter/shadow_jitter_overblur, off by default in EEVEE's
-viewport. And what EEVEE reads but the browser doesn't model:
-shadow_maximum_resolution/use_absolute_resolution (virtual shadow-map LOD;
-the browser's maps have a fixed size), the diffuse/specular/transmission/
-volume factors (no per-light BRDF split), use_custom_distance/
-cutoff_distance (the influence radius, not modelled for any light),
-use_nodes.
+Audited and not sent: spread, use_square, show_cone and the sun's
+shadow_cascade_* settings, which EEVEE never reads; shadow_buffer_clip_start,
+which EEVEE reads only for light probes; use_shadow_jitter/
+shadow_jitter_overblur, off by default in EEVEE's viewport. And what EEVEE
+reads but the browser doesn't model: shadow_maximum_resolution/
+use_absolute_resolution (virtual shadow-map LOD; the browser's maps have a
+fixed size), the diffuse/specular/transmission/volume factors (no per-light
+BRDF split), use_custom_distance/cutoff_distance (the influence radius, not
+modelled for any light), use_soft_falloff (POINT/SPOT disk vs. sphere
+falloff), use_nodes.
 """
 
 from mathutils import Vector
