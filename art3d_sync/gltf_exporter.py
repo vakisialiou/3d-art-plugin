@@ -21,6 +21,7 @@ from .material_bake import (
     cleanup_baked_materials,
     cleanup_duplicate_mesh,
 )
+from .material_coat import collect_coat_extras, inject_coat_extras
 from .material_flatten import flatten_incompatible_surfaces
 from .material_volume import approximate_volume_materials
 
@@ -32,7 +33,9 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
 
     The origin reset is required: a standalone export bakes the object's
     *world* transform onto the glTF node, which would double-apply on top of
-    scene_graph.py's transform.
+    scene_graph.py's transform. The duplicate's own animation and constraints
+    go too, as they evaluate over the reset; only an armature's action is
+    exported.
 
     A skinned mesh must be exported together with its armature target, or
     the skin binding is dropped silently. The duplicate pair is reparented
@@ -47,6 +50,8 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
     armature = _find_armature_target(obj)
 
     duplicate = obj.copy()
+    duplicate.animation_data_clear()
+    duplicate.constraints.clear()
     duplicate_armature = None
     # Each preprocessing step appends a material the moment it creates it, so
     # cleanup also covers a step that raised partway through.
@@ -88,6 +93,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
         flatten_incompatible_surfaces(duplicate, preprocessed_materials)
         bake_procedural_channels(duplicate, preprocessed_materials)
         approximate_volume_materials(duplicate, preprocessed_materials)
+        coat_extras = collect_coat_extras(duplicate)
 
         if duplicate_armature is not None:
             duplicate_armature.select_set(True)
@@ -106,7 +112,7 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
                 export_animation_mode="ACTIVE_ACTIONS",
             )
             with open(glb_path, "rb") as glb_file:
-                return glb_file.read()
+                return inject_coat_extras(glb_file.read(), coat_extras)
     finally:
         cleanup_baked_materials(preprocessed_materials)
         # Read only now: any preprocessing step may have swapped

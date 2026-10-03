@@ -11,7 +11,7 @@ from .socket_client import SocketIOEmitError, emit_once
 class ART3D_OT_send_camera(bpy.types.Operator):
     bl_idname = "art3d.send_camera"
     bl_label = "Send Camera"
-    bl_description = "Sends Camera objects' optics (lens, sensor, clip, ortho) to 3d-art-api"
+    bl_description = "Sends Camera objects' optics (lens, sensor, shift, clip, ortho) to 3d-art-api"
 
     scope: bpy.props.EnumProperty(
         items=[

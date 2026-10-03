@@ -1,5 +1,5 @@
 """Shared Cycles-bake plumbing for material_bake.py, material_flatten.py and
-material_volume.py.
+material_volume.py (find_active_output() also serves world_sync.py).
 
 find_principled_surface() walks from Material Output's Surface input — never
 "the first Principled by type", which can pick a disconnected node or one half
@@ -19,15 +19,20 @@ BAKE_SAMPLES = 16
 _BAKE_IMAGE_TAG = "art3d_bake"
 
 
-def find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
+def find_active_output(node_tree: bpy.types.NodeTree, bl_idname: str) -> Optional[bpy.types.Node]:
+    """The active output node of type `bl_idname`, else the first one."""
     output = None
-    for node in material.node_tree.nodes:
-        if node.bl_idname == "ShaderNodeOutputMaterial":
+    for node in node_tree.nodes:
+        if node.bl_idname == bl_idname:
             if node.is_active_output:
                 return node
             if output is None:
                 output = node
     return output
+
+
+def find_output(material: bpy.types.Material) -> Optional[bpy.types.ShaderNodeOutputMaterial]:
+    return find_active_output(material.node_tree, "ShaderNodeOutputMaterial")
 
 
 def find_principled_surface(
@@ -81,6 +86,38 @@ class cycles_bake_settings:
     def __exit__(self, *exc_info: object) -> None:
         bpy.context.scene.render.engine = self._engine
         bpy.context.scene.cycles.samples = self._samples
+
+
+class coat_disabled:
+    """Context manager: zeroes (and unlinks) Principled's Coat Weight for the
+    bakes inside, restoring value and link (muted if it was) on exit, even if
+    a bake raises.
+
+    Cycles' bake passes don't isolate the base layer: NORMAL and ROUGHNESS
+    average every BSDF closure, the coat included
+    (surface_shader_average_normal/_roughness), and DIFFUSE COLOR / EMIT come
+    out attenuated and tinted by the coat (principled_bsdf_emission's
+    closure_layering_weight). The coat itself ships separately, as
+    KHR_materials_clearcoat."""
+
+    def __init__(self, principled: bpy.types.ShaderNodeBsdfPrincipled) -> None:
+        self._principled = principled
+
+    def __enter__(self) -> None:
+        weight = self._principled.inputs["Coat Weight"]
+        self._value = weight.default_value
+        link = weight.links[0] if weight.is_linked else None
+        self._from = link.from_socket if link is not None else None
+        self._muted = link is not None and link.is_muted
+        if link is not None:
+            self._principled.id_data.links.remove(link)
+        weight.default_value = 0.0
+
+    def __exit__(self, *exc_info: object) -> None:
+        weight = self._principled.inputs["Coat Weight"]
+        weight.default_value = self._value
+        if self._from is not None:
+            self._principled.id_data.links.new(self._from, weight).is_muted = self._muted
 
 
 def bake_socket_to_image_node(
