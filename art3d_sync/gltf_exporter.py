@@ -33,7 +33,9 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
 
     The origin reset is required: a standalone export bakes the object's
     *world* transform onto the glTF node, which would double-apply on top of
-    scene_graph.py's transform.
+    scene_graph.py's transform. The duplicate's own animation and constraints
+    go too, as they evaluate over the reset; only an armature's action is
+    exported.
 
     A skinned mesh must be exported together with its armature target, or
     the skin binding is dropped silently. The duplicate pair is reparented
@@ -48,6 +50,8 @@ def export_object_glb(obj: bpy.types.Object) -> bytes:
     armature = _find_armature_target(obj)
 
     duplicate = obj.copy()
+    duplicate.animation_data_clear()
+    duplicate.constraints.clear()
     duplicate_armature = None
     # Each preprocessing step appends a material the moment it creates it, so
     # cleanup also covers a step that raised partway through.
