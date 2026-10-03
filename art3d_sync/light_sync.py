@@ -2,16 +2,21 @@
 The world-space position/direction are only a fallback placement: the browser
 takes the light's transform from scene_graph.py's entry once it arrives.
 
-Color and energy are the effective values EEVEE renders with
-(eevee_light.cc's Light::sync): exposure, temperature and an unnormalized
-light's area are folded in, so the browser needs none of those fields.
+Color and energy carry the factors EEVEE folds into a light's color
+(eevee_light.cc's Light::sync) that are fixed per light: exposure and the
+temperature tint. normalize is sent instead of folded in: an unnormalized
+light's power follows its live area (BKE_light_area), which the browser
+edits too (size, scale, radius).
 
-Audited and not sent, because EEVEE never reads them or the browser can't
-apply them: spread (EEVEE ignores it), shadow_buffer_clip_start (EEVEE reads
-it only for light probes), shadow_maximum_resolution/use_absolute_resolution
-(virtual shadow map LOD), use_shadow_jitter/shadow_jitter_overblur (off in
-the viewport), diffuse/specular/transmission/volume factors,
-use_custom_distance/cutoff_distance, use_nodes.
+Audited and not sent: spread, which EEVEE never reads;
+shadow_buffer_clip_start, which EEVEE reads only for light probes;
+use_shadow_jitter/shadow_jitter_overblur, off by default in EEVEE's
+viewport. And what EEVEE reads but the browser doesn't model:
+shadow_maximum_resolution/use_absolute_resolution (virtual shadow-map LOD;
+the browser's maps have a fixed size), the diffuse/specular/transmission/
+volume factors (no per-light BRDF split), use_custom_distance/
+cutoff_distance (the influence radius, not modelled for any light),
+use_nodes.
 """
 
 from mathutils import Vector
@@ -44,13 +49,9 @@ def _effective_color(light: bpy.types.Light) -> list:
     return color
 
 
-def _effective_power(obj: bpy.types.Object) -> float:
-    """BKE_light_power() (energy * 2^exposure), times BKE_light_area() for an unnormalized light."""
-    light = obj.data
-    power = light.energy * 2.0**light.exposure
-    if not light.normalize:
-        power *= light.area(matrix_world=obj.matrix_world)
-    return power
+def _effective_power(light: bpy.types.Light) -> float:
+    """BKE_light_power(): energy * 2^exposure."""
+    return light.energy * 2.0**light.exposure
 
 
 def build_light_sync(objects: list) -> list:
@@ -69,7 +70,9 @@ def build_light_sync(objects: list) -> list:
             "color": _effective_color(light),
             # Radiometric Watts; the browser applies its own tuned coefficient,
             # not a physical lm/W conversion.
-            "energyWatts": _effective_power(obj),
+            "energyWatts": _effective_power(light),
+            # False: the browser multiplies the power by the emitter's area.
+            "normalize": light.normalize,
             "position": [world_position.x, world_position.y, world_position.z],
             "direction": [direction.x, direction.y, direction.z],
             "castShadow": light.use_shadow,
