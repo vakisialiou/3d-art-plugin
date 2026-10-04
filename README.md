@@ -1,6 +1,6 @@
 # 🧩 3d-art-plugin
 
-Аддон Blender проекта [3d-art](../README.md) — читает текущую сцену и отправляет её в [3d-art-api](../3d-art-api) по socket.io для живого превью в [3d-art-web](../3d-art-web). Собран под Blender 5.2.1, только стандартная библиотека Python (`urllib`) — pip внутри Blender не нужен.
+Аддон Blender проекта [3d-art](../README.md) — читает текущую сцену и отправляет её через [3d-art-api](../3d-art-api) (обычный HTTP) в открытый проект [3d-art-web](../3d-art-web) для живого превью. Собран под Blender 5.2.1, только стандартная библиотека Python (`urllib`) — pip внутри Blender не нужен.
 
 ## 📦 Что делает
 
@@ -14,7 +14,16 @@
 1. Собрать `art3d_sync.zip` командой из раздела «Пересборка» — zip в git не хранится (`.gitignore`).
 2. Blender: Edit → Preferences → Add-ons → Install from Disk… → `art3d_sync.zip` → включить "3D Art Sync".
 3. **После каждой переустановки — полностью перезапустить Blender**: запущенная сессия держит старые модули в кэше.
-4. 3D Viewport → сайдбар (`N`) → вкладка "3D Art": сначала ввести **Project ID** (из веб-приложения; без него кнопки не отправляют), затем **Send Sky** / **Send HDRI** / **Send Render Settings** (General Settings) и **Send Selected** / **Send All** в секциях Objects, Lighting, Camera.
+
+## 🔗 Подключение
+
+1. 3D Viewport → сайдбар (`N`) → вкладка "3D Art" → **Connect account**: Blender показывает код и открывает браузер.
+2. В браузере (войдя в аккаунт) сверить код и подтвердить подключение. Это один раз на компьютер: токен устройства хранится вне Blender и .blend-файлов и переживает перезапуски, другие файлы и обновления Blender.
+3. **Scene project**: выбрать проект аккаунта в списке или нажать **New project** (назовётся по .blend-файлу или по сцене). Привязка хранится в самой сцене — у каждой сцены своя; чужой .blend сохраняет свою, пока не выбрать другую.
+4. **Open in browser** — открыть проект в веб-приложении. Кнопки Send работают, пока проект открыт хотя бы в одной вкладке браузера («Browser open (N)»).
+5. **Send Sky** / **Send HDRI** / **Send Render Settings** (General Settings) и **Send Selected** / **Send All** в секциях Objects, Lighting, Camera.
+
+Строка состояния Blender всегда показывает «3D Art · …»; клик по ней открывает те же блоки Account и Scene project. **Disconnect** отключает компьютер от аккаунта и отзывает его токен на сервере; отключить устройство можно и из браузера — аддон заметит это за один heartbeat.
 
 ## ⚙️ Пересборка после изменений (обязательно)
 
@@ -26,7 +35,9 @@ rm -f art3d_sync.zip && zip -r art3d_sync.zip art3d_sync -x "*.pyc" -x "__pycach
 
 ## 🌐 Конфигурация
 
-`art3d_sync/constants.py`: `SERVER_URL` (по умолчанию `http://localhost:3500` — порт `3d-art-api`) и `DEV_TOKEN` (общий токен с сервером, `ART3D_DEV_TOKEN` на стороне API; логина у аддона нет).
+- Сервер: переменная окружения `ART3D_SERVER_URL` > поле **Server URL** в настройках аддона (видно с включёнными Developer Extras) > `DEFAULT_SERVER_URL` в `art3d_sync/constants.py` (`http://localhost:3500` — порт `3d-art-api`).
+- Токен устройства: `credentials.json` в `~/.config/art3d/` (Linux, учитывает `$XDG_CONFIG_HOME`), `~/Library/Application Support/art3d/` (macOS), `%APPDATA%\art3d\` (Windows) — по записи на сервер. `ART3D_TOKEN` (headless/CI) используется вместо файла и на диск не пишется; рецепт headless-запуска — [`CLAUDE.md`](CLAUDE.md).
+- Не-локальный сервер требует включённого Online Access (Preferences → System); с localhost аддон работает всегда.
 
 ## 📚 Документация
 
