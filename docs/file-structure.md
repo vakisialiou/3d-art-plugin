@@ -32,7 +32,7 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 └── socket_client.py             # stdlib-only Engine.IO/Socket.IO polling client — emit_once(..., auth={token, projectId}) sends auth in the CONNECT packet
 
 blender/                         # demo scenes/assets for testing sync — not addon source
-└── scripts/                     # headless generators of demo-scene content: add_coat_materials.py (idempotent) adds the Car Paint / Car Paint Worn coat demos to materials-demo.blend and materials/plastic_rubber.blend — run command in its docstring
+└── scripts/                     # headless generators of demo-scene content: add_coat_materials.py (idempotent) adds the Car Paint / Car Paint Worn coat demos to performance/materials.blend and materials/plastic_rubber.blend — run command in its docstring
 ```
 
 Shipped as `art3d_sync.zip` (gitignored, built locally) — rebuild/reinstall rule: `CLAUDE.md`'s Critical Discipline. Payload shapes, handshake and timeouts: [`../../docs/sync-protocol.md`](../../docs/sync-protocol.md).
