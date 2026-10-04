@@ -2,9 +2,8 @@ import time
 
 import bpy
 
-from .constants import DEV_TOKEN, SERVER_URL
+from . import upload
 from .object_id import get_existing_id
-from .project import get_project_id
 from .scene_graph import (
     build_delete_entries,
     build_sync_objects,
@@ -12,7 +11,6 @@ from .scene_graph import (
     collect_selected_with_ancestors,
 )
 from .sent_ids import get_previous_sent_ids, set_sent_ids
-from .socket_client import SocketIOEmitError, emit_once
 
 _send_count = 0
 
@@ -30,14 +28,11 @@ class ART3D_OT_send_scene(bpy.types.Operator):
         default="selected",
     )
 
+    @classmethod
+    def poll(cls, context):
+        return upload.can_send(cls, context)
+
     def execute(self, context):
-        global _send_count
-
-        project_id = get_project_id(context)
-        if not project_id:
-            self.report({"ERROR"}, "Set a Project ID in the 3D Art panel before sending")
-            return {"CANCELLED"}
-
         scene = context.scene
         objects = (
             collect_selected_with_ancestors(context)
@@ -59,35 +54,32 @@ class ART3D_OT_send_scene(bpy.types.Operator):
             return {"CANCELLED"}
 
         window_manager = context.window_manager
-        window_manager.progress_begin(0, len(objects))
-        try:
-            payload_objects = build_sync_objects(
-                objects,
-                on_progress=lambda done, _total: window_manager.progress_update(done),
-            )
-        finally:
-            window_manager.progress_end()
 
-        payload_objects.extend(delete_entries)
+        def build(progress):
+            global _send_count
 
-        _send_count += 1
-        payload = {
-            "blenderVersion": _send_count,
-            "timestamp": int(time.time() * 1000),
-            "objects": payload_objects,
-        }
+            def on_progress(done, _total):
+                window_manager.progress_update(done)
+                progress(done)
 
-        try:
-            emit_once(
-                SERVER_URL,
-                "blender-sync",
-                payload,
-                auth={"token": DEV_TOKEN, "projectId": project_id},
-            )
-        except SocketIOEmitError as error:
-            self.report({"ERROR"}, str(error))
+            window_manager.progress_begin(0, len(objects))
+            try:
+                payload_objects = build_sync_objects(objects, on_progress=on_progress)
+            finally:
+                window_manager.progress_end()
+            payload_objects.extend(delete_entries)
+            _send_count += 1
+            return {
+                "blenderVersion": _send_count,
+                "timestamp": int(time.time() * 1000),
+                "objects": payload_objects,
+            }
+
+        payload = upload.send(self, context, "blender-sync", build, total=len(objects))
+        if payload is None:
             return {"CANCELLED"}
 
+        payload_objects = payload["objects"]
         updated_ids = {entry["id"] for entry in payload_objects if entry["action"] == "update"}
         set_sent_ids(scene, (previous_sent_ids - deleted_ids) | updated_ids)
 
