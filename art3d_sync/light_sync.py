@@ -12,7 +12,9 @@ Audited and not sent: spread, use_square, show_cone and the sun's
 shadow_cascade_* settings, which EEVEE never reads; shadow_buffer_clip_start,
 which EEVEE reads only for light probes; use_shadow_jitter/
 shadow_jitter_overblur, off by default in EEVEE's viewport. And what EEVEE
-reads but the browser doesn't model: shadow_maximum_resolution/
+reads but the browser doesn't model: an AREA light's use_shadow/
+shadow_filter_radius (area lights cast no shadow; sent as None),
+shadow_maximum_resolution/
 use_absolute_resolution (virtual shadow-map LOD; the browser's maps have a
 fixed size), the diffuse/specular/transmission/volume factors (no per-light
 BRDF split), use_custom_distance/cutoff_distance (the influence radius, not
@@ -76,11 +78,12 @@ def build_light_sync(objects: list) -> list:
             "normalize": light.normalize,
             "position": [world_position.x, world_position.y, world_position.z],
             "direction": [direction.x, direction.y, direction.z],
-            "castShadow": light.use_shadow,
-            # Radius in meters for POINT/SPOT, angular diameter in radians for
-            # SUN. EEVEE's AREA branch never reads it.
+            # None for AREA: area lights cast no shadow, and their size is
+            # areaWidth/areaHeight.
+            "castShadow": None if is_area else light.use_shadow,
+            # Radius in meters for POINT/SPOT, angular diameter in radians for SUN.
             "shadowSoftSize": None if is_area else (light.angle if light.type == "SUN" else light.shadow_soft_size),
-            "shadowFilterRadius": light.shadow_filter_radius,
+            "shadowFilterRadius": None if is_area else light.shadow_filter_radius,
             "spotAngleRad": light.spot_size if light.type == "SPOT" else None,
             "spotBlend": light.spot_blend if light.type == "SPOT" else None,
             "areaShape": ("ELLIPSE" if light.shape in _ELLIPSE_SHAPES else "RECT") if is_area else None,
