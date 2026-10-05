@@ -19,6 +19,10 @@ baseColorFactor becomes glTF's default white, not the node's value).
   source wired into Normal. The base channels above bake inside
   shader_bake.coat_disabled — Cycles' passes would otherwise mix the coat
   into them.
+- A base channel that bakes to one flat value (a graph that is constant in
+  the end) ships as a plain factor instead of a texture
+  (shader_bake.flat_value): no image to send, no texture in the shader. A
+  flat Normal that points straight out ships as no normal map at all.
 """
 
 from typing import Optional
@@ -30,9 +34,13 @@ from .shader_bake import (
     bake_socket_to_image_node,
     coat_disabled,
     find_principled_surface,
+    flat_value,
     is_bake_image,
     new_bake_image,
 )
+
+# A tangent-space normal map pixel that means "no change": +Z, encoded 0..1.
+_FLAT_NORMAL = (0.5, 0.5, 1.0)
 
 _BAKE_IMAGE_PREFIX = "__art3d_bake"
 
@@ -128,6 +136,23 @@ def _activate_bake_target(material: bpy.types.Material, image: bpy.types.Image) 
     material.node_tree.nodes.active = image_node
 
 
+def _drop_bake(material: bpy.types.Material, image_node: bpy.types.ShaderNodeTexImage) -> None:
+    image = image_node.image
+    material.node_tree.nodes.remove(image_node)
+    if image is not None:
+        bpy.data.images.remove(image)
+
+
+def _set_flat(material: bpy.types.Material, socket, value: tuple) -> None:
+    """`socket` takes `value` as its default, unlinked (a linked socket ignores it)."""
+    if socket.is_linked:
+        material.node_tree.links.remove(socket.links[0])
+    if socket.type == "RGBA":
+        socket.default_value = (value[0], value[1], value[2], 1.0)
+    else:
+        socket.default_value = value[0]
+
+
 def _bake_factor_channel(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
@@ -136,6 +161,7 @@ def _bake_factor_channel(
     pass_filter: set,
     image_name: str,
     colorspace: str,
+    mesh: bpy.types.Mesh,
 ) -> None:
     socket = principled.inputs[input_name]
     if _has_view_dependent_node(socket):
@@ -152,6 +178,11 @@ def _bake_factor_channel(
         # Pack immediately — see shader_bake.bake_socket_to_image_node.
         image.pack()
         image_node = material.node_tree.nodes.active
+    flat = flat_value(image_node.image, mesh)
+    if flat is not None:
+        _drop_bake(material, image_node)
+        _set_flat(material, principled.inputs[input_name], flat)
+        return
     material.node_tree.links.new(image_node.outputs["Color"], principled.inputs[input_name])
 
 
@@ -190,8 +221,16 @@ def _bake_normal_channel(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     image_name: str,
+    mesh: bpy.types.Mesh,
 ) -> None:
     image_node = _bake_tangent_normal(material, image_name)
+    flat = flat_value(image_node.image, mesh)
+    if flat is not None and all(abs(flat[i] - _FLAT_NORMAL[i]) <= 1.5 / 255 for i in range(3)):
+        _drop_bake(material, image_node)
+        normal = principled.inputs["Normal"]
+        if normal.is_linked:
+            material.node_tree.links.remove(normal.links[0])
+        return
     _link_normal_map(material, image_node, principled.inputs["Normal"])
 
 
@@ -199,6 +238,7 @@ def _bake_emission_channel(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     image_name: str,
+    mesh: bpy.types.Mesh,
 ) -> None:
     """Bakes the combined Color*Strength (see the module docstring)."""
     image = new_bake_image(image_name, "sRGB")
@@ -206,7 +246,12 @@ def _bake_emission_channel(
     bpy.ops.object.bake(type="EMIT", margin=4)
     image.pack()
     image_node = material.node_tree.nodes.active
-    material.node_tree.links.new(image_node.outputs["Color"], principled.inputs["Emission Color"])
+    flat = flat_value(image, mesh)
+    if flat is not None:
+        _drop_bake(material, image_node)
+        _set_flat(material, principled.inputs["Emission Color"], flat)
+    else:
+        material.node_tree.links.new(image_node.outputs["Color"], principled.inputs["Emission Color"])
     # Unlink too: a linked socket ignores default_value, so its graph would
     # apply Strength again on top of the baked product.
     strength_input = principled.inputs["Emission Strength"]
@@ -270,6 +315,7 @@ def _bake_base_channels(
     material: bpy.types.Material,
     principled: bpy.types.ShaderNodeBsdfPrincipled,
     index: int,
+    mesh: bpy.types.Mesh,
 ) -> None:
     if _needs_factor_bake(principled.inputs.get("Base Color")):
         _bake_factor_channel(
@@ -280,6 +326,7 @@ def _bake_base_channels(
             {"COLOR"},
             f"{_BAKE_IMAGE_PREFIX}_basecolor_{index}",
             "sRGB",
+            mesh,
         )
 
     if _needs_factor_bake(principled.inputs.get("Roughness")):
@@ -291,13 +338,14 @@ def _bake_base_channels(
             set(),
             f"{_BAKE_IMAGE_PREFIX}_roughness_{index}",
             "Non-Color",
+            mesh,
         )
 
     if _needs_normal_bake(principled.inputs.get("Normal")):
-        _bake_normal_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_normal_{index}")
+        _bake_normal_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_normal_{index}", mesh)
 
     if _needs_emission_bake(principled):
-        _bake_emission_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}")
+        _bake_emission_channel(material, principled, f"{_BAKE_IMAGE_PREFIX}_emission_{index}", mesh)
 
 
 def _bake_coat_channels(
@@ -339,6 +387,7 @@ def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None
 
     if duplicate.data.users > 1:
         duplicate.data = duplicate.data.copy()
+    duplicate.data.calc_loop_triangles()  # shader_bake.flat_value samples by triangle
 
     original_active_index = duplicate.active_material_index
     original_engine = bpy.context.scene.render.engine
@@ -358,7 +407,7 @@ def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None
             coat_bakes = _coat_bakes(new_material)
 
             with coat_disabled(principled):
-                _bake_base_channels(new_material, principled, index)
+                _bake_base_channels(new_material, principled, index, duplicate.data)
             _bake_coat_channels(new_material, principled, index, coat_bakes)
     finally:
         bpy.context.scene.render.engine = original_engine

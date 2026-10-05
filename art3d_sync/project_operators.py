@@ -55,7 +55,7 @@ class ART3D_OT_new_project(bpy.types.Operator):
         return True
 
     def execute(self, context):
-        name = (self.name.strip() or _default_name(context))[:_NAME_MAX]
+        name = (self.name.strip() or default_name(context))[:_NAME_MAX]
         created, error = _create(name)
         if created is None:
             self.report({"ERROR"}, error)
@@ -82,7 +82,7 @@ class ART3D_OT_open_project(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _default_name(context) -> str:
+def default_name(context) -> str:
     stem = os.path.splitext(bpy.path.basename(bpy.data.filepath))[0]
     return stem or context.scene.name or "Untitled"
 

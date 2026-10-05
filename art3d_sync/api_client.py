@@ -1,4 +1,4 @@
-"""JSON over HTTP to the 3D Art server, stdlib only (Blender's Python has no
+"""JSON (and raw blobs) over HTTP to the 3D Art server, stdlib only (Blender's Python has no
 requests/socketio). No bpy here: the connection worker thread calls it.
 """
 
@@ -51,6 +51,40 @@ def request(
     except (OSError, http.client.HTTPException, ValueError) as error:
         # OSError: timeouts and resets; ValueError: a malformed URL or a
         # non-JSON success body (e.g. a proxy's HTML page).
+        raise TransportError(str(error) or type(error).__name__) from error
+
+
+def request_bytes(
+    method: str,
+    url: str,
+    *,
+    token: Optional[str],
+    data: bytes,
+    headers: dict,
+    timeout: float = 60.0,
+) -> tuple[int, Any]:
+    """Like request(), but the body is raw bytes (application/octet-stream)
+    with extra `headers`; the answer is still JSON."""
+    all_headers = {
+        "Accept": "application/json",
+        "User-Agent": _USER_AGENT,
+        "Content-Type": "application/octet-stream",
+        **headers,
+    }
+    if token:
+        all_headers["Authorization"] = f"Bearer {token}"
+    prepared = urllib.request.Request(url, data=data, headers=all_headers, method=method)
+    try:
+        with urllib.request.urlopen(prepared, timeout=timeout, context=_context()) as response:
+            raw = response.read()
+            return response.status, _lenient_json(raw)
+    except urllib.error.HTTPError as error:
+        with error:
+            raw = error.read()
+        return error.code, _lenient_json(raw)
+    except urllib.error.URLError as error:
+        raise TransportError(str(error.reason)) from error
+    except (OSError, http.client.HTTPException, ValueError) as error:
         raise TransportError(str(error) or type(error).__name__) from error
 
 

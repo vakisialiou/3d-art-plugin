@@ -1,23 +1,13 @@
-"""The 3D Art item in Blender's status bar, always visible: the connection
-state in a few words. Clicking it opens the Account and Scene project boxes
-as a popover.
-"""
+"""The 3D Art item in Blender's status bar, always visible: the status dot
+and a few words — clicking opens the setup card or project as a popover —
+or, while a Send runs, its progress bar with a Cancel button."""
 
 import bpy
 
-from . import connection_ui, status
+from . import connection_ui, send_job, status
+from .icons import dot
 
 _NAME_MAX = 24
-
-_SHORT = {
-    status.NOT_CONNECTED: "not connected",
-    status.WAITING_APPROVAL: "approve in browser",
-    status.ONLINE_ACCESS_OFF: "online access off",
-    status.CONNECTING: "connecting…",
-    status.OFFLINE: "offline",
-    status.OUTDATED: "update the add-on",
-    status.NO_PROJECT: "no project",
-}
 
 
 class ART3D_PT_status(bpy.types.Panel):
@@ -28,16 +18,15 @@ class ART3D_PT_status(bpy.types.Panel):
     bl_ui_units_x = 14
 
     def draw(self, context):
-        connection_ui.draw_account(self.layout, context)
-        connection_ui.draw_project(self.layout, context)
+        connection_ui.draw_status_card(self.layout, context)
 
 
-def text(current: status.Status) -> str:
-    if current.state == status.READY:
-        return f"3D Art · {_short(current.project_name)} · browser ✓"
-    if current.state == status.NO_BROWSER:
-        return f"3D Art · {_short(current.project_name)} · no browser"
-    return f"3D Art · {_SHORT[current.state]}"
+def text(current: status.Status, scene) -> str:
+    color, word = connection_ui.state_dot(current, scene)
+    if current.state in (status.READY, status.NO_BROWSER) and color != "red":
+        name = _short(current.project_name)
+        return f"3D Art · {name}" if current.state == status.READY else f"3D Art · {name} · open browser"
+    return f"3D Art · {word}"
 
 
 def _short(name: str) -> str:
@@ -45,9 +34,19 @@ def _short(name: str) -> str:
     return name if len(name) <= _NAME_MAX else name[: _NAME_MAX - 1] + "…"
 
 
-def _draw(self, _context):
+def _draw(self, context):
+    job = send_job.active()
+    if job is not None:
+        row = self.layout.row(align=True)
+        bar = row.row(align=True)
+        bar.ui_units_x = 12
+        fraction = job.fraction()
+        bar.progress(factor=fraction, type="BAR", text=f"3D Art · Sending {round(fraction * 100)}%")
+        row.operator("art3d.cancel_send", text="", icon="X")
+        return
     current = status.current()
-    self.layout.popover(panel=ART3D_PT_status.bl_idname, text=text(current), icon=status.ICONS[current.state])
+    color, _ = connection_ui.state_dot(current, context.scene)
+    self.layout.popover(panel=ART3D_PT_status.bl_idname, text=text(current, context.scene), icon_value=dot(color))
 
 
 def register() -> None:

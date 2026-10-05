@@ -114,17 +114,9 @@ def collect_coat_extras(duplicate: bpy.types.Object) -> dict:
     return extras
 
 
-def inject_coat_extras(glb: bytes, coat_extras: dict) -> bytes:
-    """Rewrites only the JSON chunk (the BIN chunk is copied verbatim); a GLB
-    with nothing to add comes back byte-identical."""
-    if not coat_extras:
-        return glb
-    magic, version, _length = struct.unpack_from("<4sII", glb, 0)
-    json_length, json_type = struct.unpack_from("<I4s", glb, 12)
-    if magic != b"glTF" or json_type != b"JSON":
-        raise ValueError("not a GLB with a leading JSON chunk")
-    gltf = json.loads(glb[20 : 20 + json_length])
-
+def apply_coat_extras(gltf: dict, coat_extras: dict) -> bool:
+    """Completes the exported clearcoat in a parsed glTF (extras.coat, an
+    omitted roughness); True when anything changed."""
     changed = False
     for material in gltf.get("materials", []):
         coat = coat_extras.get(material.get("name"))
@@ -141,7 +133,20 @@ def inject_coat_extras(glb: bytes, coat_extras: dict) -> bytes:
         if not has_roughness and "roughness" in coat:
             clearcoat["clearcoatRoughnessFactor"] = coat["roughness"]
             changed = True
-    if not changed:
+    return changed
+
+
+def inject_coat_extras(glb: bytes, coat_extras: dict) -> bytes:
+    """apply_coat_extras on a GLB: rewrites only the JSON chunk (the BIN chunk
+    is copied verbatim); a GLB with nothing to add comes back byte-identical."""
+    if not coat_extras:
+        return glb
+    magic, version, _length = struct.unpack_from("<4sII", glb, 0)
+    json_length, json_type = struct.unpack_from("<I4s", glb, 12)
+    if magic != b"glTF" or json_type != b"JSON":
+        raise ValueError("not a GLB with a leading JSON chunk")
+    gltf = json.loads(glb[20 : 20 + json_length])
+    if not apply_coat_extras(gltf, coat_extras):
         return glb
 
     chunk = json.dumps(gltf, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

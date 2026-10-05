@@ -1,85 +1,149 @@
-"""Walks the Blender scene graph and builds the blender-sync `objects[]`
-payload — one entry per object, geometry as its own small .glb, transform as
-explicit local-to-parent fields so the browser can resolve hierarchy by id.
+"""Which objects a Send covers and their `blender-sync` entries: one entry
+per object, transform as explicit local-to-parent fields so the browser can
+resolve hierarchy by id, geometry named by its object key (`glb`).
+
+matrix_local is sent as-is: the web scene is Z-up like Blender, no axis
+conversion (see gltf_exporter.py).
 """
 
-import base64
-from typing import Callable, Optional
+from dataclasses import dataclass, field
+from typing import Optional
 
 import bpy
 
-from .gltf_exporter import export_object_glb
-from .object_id import resolve_stable_ids
-
-# matrix_local is sent as-is: the web scene is Z-up like Blender, no axis
-# conversion (see gltf_exporter.py).
-
-# Types the glTF exporter (export_apply=True) evaluates to a mesh. The rest
-# have no geometry (EMPTY/ARMATURE/LATTICE/LIGHT_PROBE/SPEAKER), sync on their
-# own channel (CAMERA/LIGHT), or don't convert (GREASEPENCIL/VOLUME/POINTCLOUD/
-# CURVES).
-_MESH_CONVERTIBLE_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT"}
+from .object_id import get_existing_id, resolve_stable_ids
+from .object_key import MESH_CONVERTIBLE_TYPES
+from .sent_ids import get_previous_sent_ids
 
 
-def collect_selected_with_ancestors(context: bpy.types.Context) -> list:
+@dataclass
+class Entry:
+    obj: bpy.types.Object
+    id: str
+    parent_id: Optional[str]
+    # Has geometry to send. False for empties and for a hidden ancestor kept
+    # only so its visible children land in the right place.
+    exports: bool
+
+
+@dataclass
+class Plan:
+    entries: list = field(default_factory=list)  # parents before children
+    deletions: list = field(default_factory=list)  # `action: 'delete'` entries
+    deleted_ids: set = field(default_factory=set)
+
+
+def renderable_names(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer) -> set:
+    """Objects a render would show: not disabled in renders themselves, in at
+    least one collection that is neither excluded nor disabled in renders
+    (all the way up)."""
+    visible: set = set()
+
+    def walk(layer_collection, parent_visible: bool) -> None:
+        collection = layer_collection.collection
+        shown = parent_visible and not layer_collection.exclude and not collection.hide_render
+        if shown:
+            visible.add(collection.name_full)
+        for child in layer_collection.children:
+            walk(child, shown)
+
+    walk(view_layer.layer_collection, True)
+    return {
+        obj.name
+        for obj in scene.objects
+        if not obj.hide_render and any(collection.name_full in visible for collection in obj.users_collection)
+    }
+
+
+def selected_objects(view_layer: bpy.types.ViewLayer) -> list:
+    return [obj for obj in view_layer.objects if obj.select_get(view_layer=view_layer)]
+
+
+def _depth(obj: bpy.types.Object) -> int:
+    depth = 0
+    while obj.parent is not None:
+        depth += 1
+        obj = obj.parent
+    return depth
+
+
+def _covered(scene, view_layer, scope: str, skip_hidden: bool) -> tuple:
+    """(objects the scope covers, ancestors added, names that count as shown)."""
+    shown = renderable_names(scene, view_layer) if skip_hidden else {obj.name for obj in scene.objects}
+    base = selected_objects(view_layer) if scope == "SELECTED" else list(scene.objects)
     collected: dict = {}
-    for obj in context.selected_objects:
-        _add_with_ancestors(obj, collected)
-    return list(collected.values())
+    for obj in base:
+        if obj.name not in shown:
+            continue
+        current = obj
+        while current is not None and current.name not in collected:
+            collected[current.name] = current
+            current = current.parent
+    return list(collected.values()), shown
 
 
-def collect_all_scene_objects(context: bpy.types.Context) -> list:
-    return list(context.scene.objects)
-
-
-def _add_with_ancestors(obj: bpy.types.Object, collected: dict) -> None:
-    if obj.name in collected:
-        return
-    collected[obj.name] = obj
-    if obj.parent is not None:
-        _add_with_ancestors(obj.parent, collected)
-
-
-def build_sync_objects(
-    objects: list,
-    on_progress: Optional[Callable[[int, int], None]] = None,
-) -> list:
-    included_names = {obj.name for obj in objects}
-    resolved_ids = resolve_stable_ids(objects)
-    payload_objects = []
-
-    for index, obj in enumerate(objects):
-        if on_progress is not None:
-            on_progress(index, len(objects))
-
-        parent_included = obj.parent is not None and obj.parent.name in included_names
-        location, rotation, scale = obj.matrix_local.decompose()
-
-        payload_objects.append(
-            {
-                "id": resolved_ids[obj.name],
-                # Display-only — may change between syncs, never used as a key.
-                "name": obj.name,
-                "parentId": resolved_ids[obj.parent.name] if parent_included else None,
-                "action": "update",
-                # Blender's Object.type enum (rna_enum_object_type_items,
-                # rna_object.cc), sent verbatim.
-                "type": obj.type,
-                "position": [location.x, location.y, location.z],
-                # Quaternion, not Euler: Euler order names ("XYZ" etc.) differ in
-                # meaning between mathutils and three.js; quaternions don't.
-                "rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
-                "scale": [scale.x, scale.y, scale.z],
-                "glb": _export_glb_base64(obj) if obj.type in _MESH_CONVERTIBLE_TYPES else None,
-            }
+def plan(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, skip_hidden: bool) -> Plan:
+    """The entries a Send makes (stable ids assigned where missing) and the
+    deletions it carries. Deletion is scene-wide, whatever the scope: an
+    object sent before and no longer shown (deleted, or now disabled in
+    renders with Skip Hidden on) goes from the browser."""
+    objects, shown = _covered(scene, view_layer, scope, skip_hidden)
+    objects.sort(key=_depth)
+    names = {obj.name for obj in objects}
+    ids = resolve_stable_ids(objects)
+    result = Plan()
+    for obj in objects:
+        parent = obj.parent if obj.parent is not None and obj.parent.name in names else None
+        result.entries.append(
+            Entry(
+                obj=obj,
+                id=ids[obj.name],
+                parent_id=ids[parent.name] if parent is not None else None,
+                exports=obj.type in MESH_CONVERTIBLE_TYPES and obj.name in shown,
+            )
         )
 
-    return payload_objects
+    kept = set()
+    for obj in scene.objects:
+        existing = get_existing_id(obj)
+        if existing is None:
+            continue
+        if obj.name in shown or any(child.name in shown for child in obj.children_recursive):
+            kept.add(existing)
+    result.deleted_ids = get_previous_sent_ids(scene) - kept
+    result.deletions = [{"id": object_id, "action": "delete"} for object_id in sorted(result.deleted_ids)]
+    return result
 
 
-def _export_glb_base64(obj: bpy.types.Object) -> str:
-    return base64.b64encode(export_object_glb(obj)).decode("ascii")
+def entry_payload(entry: Entry, glb_key: Optional[str]) -> dict:
+    location, rotation, scale = entry.obj.matrix_local.decompose()
+    return {
+        "id": entry.id,
+        # Display-only — may change between syncs, never used as a key.
+        "name": entry.obj.name,
+        "parentId": entry.parent_id,
+        "action": "update",
+        # Blender's Object.type enum (rna_enum_object_type_items,
+        # rna_object.cc), sent verbatim.
+        "type": entry.obj.type,
+        "position": [location.x, location.y, location.z],
+        # Quaternion, not Euler: Euler order names ("XYZ" etc.) differ in
+        # meaning between mathutils and three.js; quaternions don't.
+        "rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
+        "scale": [scale.x, scale.y, scale.z],
+        "glb": glb_key,
+    }
 
 
-def build_delete_entries(deleted_ids: set) -> list:
-    return [{"id": object_id, "action": "delete"} for object_id in deleted_ids]
+def summary(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, skip_hidden: bool) -> dict:
+    """What a Send would cover, for the panel's rows: object, material,
+    light and camera counts (no ids assigned, nothing written)."""
+    objects, shown = _covered(scene, view_layer, scope, skip_hidden)
+    meshes = [obj for obj in objects if obj.type in MESH_CONVERTIBLE_TYPES and obj.name in shown]
+    materials = {slot.material.name_full for obj in meshes for slot in obj.material_slots if slot.material}
+    return {
+        "objects": len(meshes),
+        "materials": len(materials),
+        "lights": len([obj for obj in objects if obj.type == "LIGHT"]),
+        "cameras": len([obj for obj in objects if obj.type == "CAMERA"]),
+    }

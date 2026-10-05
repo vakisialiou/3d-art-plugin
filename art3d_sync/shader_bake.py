@@ -7,12 +7,25 @@ of a Mix Shader. `None` means Surface isn't a single Principled BSDF
 (material_flatten.py handles that).
 """
 
+from contextlib import contextmanager
 from typing import Optional
 
 import bpy
+import numpy as np
 
-BAKE_SIZE = 512
 BAKE_SAMPLES = 16
+
+# The resolution new_bake_image() uses; a Send sets it per object (bake_size()).
+_bake_size = 512
+
+# A bake whose sampled texels all sit within this of each other is one flat
+# value: an 8-bit constant bakes to identical bytes, so this is about exact.
+_FLAT_TOLERANCE = 0.6 / 255
+# Points sampled per triangle for the flatness check, as barycentric weights.
+_SAMPLE_WEIGHTS = np.array(
+    [[1 / 3, 1 / 3, 1 / 3], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]], dtype=np.float32
+)
+_MAX_SAMPLED_TRIANGLES = 50_000
 
 # Marks the images new_bake_image() creates, so cleanup removes only those: a
 # material.copy() shares the user's own Image datablocks, it doesn't copy them.
@@ -50,15 +63,69 @@ def find_principled_surface(
     return node
 
 
+@contextmanager
+def bake_size(size: int):
+    """Bakes inside use `size` × `size` images (the scene's Web Optimization)."""
+    global _bake_size
+    previous = _bake_size
+    _bake_size = int(size)
+    try:
+        yield
+    finally:
+        _bake_size = previous
+
+
 def new_bake_image(name: str, colorspace: str) -> bpy.types.Image:
-    image = bpy.data.images.new(name, BAKE_SIZE, BAKE_SIZE)
+    image = bpy.data.images.new(name, _bake_size, _bake_size)
     image.colorspace_settings.name = colorspace
-    image[_BAKE_IMAGE_TAG] = True
+    tag_bake_image(image)
     return image
+
+
+def tag_bake_image(image: bpy.types.Image) -> None:
+    """Marks an image the export made (a bake, a scaled copy) for cleanup."""
+    image[_BAKE_IMAGE_TAG] = True
 
 
 def is_bake_image(image: bpy.types.Image) -> bool:
     return bool(image.get(_BAKE_IMAGE_TAG))
+
+
+def _srgb_to_linear(value: np.ndarray) -> np.ndarray:
+    return np.where(value <= 0.04045, value / 12.92, ((value + 0.055) / 1.055) ** 2.4)
+
+
+def flat_value(image: bpy.types.Image, mesh: bpy.types.Mesh) -> Optional[tuple]:
+    """The one RGBA value (linear) a bake came out as, or None when it varies.
+
+    Sampled where the mesh's faces land in UV space (texels outside the UV
+    islands keep the empty image's color, so a whole-image check would never
+    call a bake flat)."""
+    uv_layer = mesh.uv_layers.active
+    if uv_layer is None or not mesh.loop_triangles:
+        return None
+    width, height = image.size
+    pixels = np.empty(width * height * 4, dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    pixels = pixels.reshape(height, width, 4)
+
+    uvs = np.empty(len(uv_layer.data) * 2, dtype=np.float32)
+    uv_layer.data.foreach_get("uv", uvs)
+    uvs = uvs.reshape(-1, 2)
+    corners = np.empty(len(mesh.loop_triangles) * 3, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("loops", corners)
+    triangles = uvs[corners.reshape(-1, 3)][:_MAX_SAMPLED_TRIANGLES]  # (n, 3, 2)
+    points = np.einsum("sk,nkd->nsd", _SAMPLE_WEIGHTS, triangles).reshape(-1, 2)
+    columns = np.clip((np.mod(points[:, 0], 1.0) * width).astype(np.int32), 0, width - 1)
+    rows = np.clip((np.mod(points[:, 1], 1.0) * height).astype(np.int32), 0, height - 1)
+    samples = pixels[rows, columns]
+    low, high = samples.min(axis=0), samples.max(axis=0)
+    if float((high - low).max()) > _FLAT_TOLERANCE:
+        return None
+    value = (low + high) / 2
+    if image.colorspace_settings.name == "sRGB":
+        value[:3] = _srgb_to_linear(value[:3])
+    return tuple(float(channel) for channel in value)
 
 
 def activate_bake_target(

@@ -322,6 +322,19 @@ class Connection:
             self._beat_requested = True
         self._wake.set()
 
+    def mark_sending(self, channel: str, done: int, total: int) -> None:
+        """A Send's progress without a synchronous heartbeat: the worker
+        announces it (at once when it starts, then at most once a second)."""
+        with self._lock:
+            starting = self._sending is None
+            self._sending = {"channel": channel, "done": max(0, int(done)), "total": max(0, int(total))}
+            now = time.monotonic()
+            if not starting and now - self._progress_beat_at < _PROGRESS_BEAT_S:
+                return
+            self._progress_beat_at = now
+            self._beat_requested = True
+        self._wake.set()
+
     def end_sending(self) -> None:
         with self._lock:
             if self._sending is None:

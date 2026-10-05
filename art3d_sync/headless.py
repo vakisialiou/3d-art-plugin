@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 import bpy
 
-from . import project, runtime, status
+from . import project, runtime, send_job, status
 
 _POLL_S = 0.1
 
@@ -34,3 +34,12 @@ def wait_until(predicate: Callable[[status.Status], bool], timeout: float = 30.0
 def wait_ready(timeout: float = 30.0) -> status.Status:
     """Waits for READY (a browser has the scene's project open); returns the final status."""
     return wait_until(lambda current: current.state == status.READY, timeout)
+
+
+def send(channels: tuple = send_job.CHANNELS, scope: str = "ALL", force: bool = False) -> Optional[send_job.Report]:
+    """Runs a Send of `channels` to the end (background mode runs it in a
+    loop) and returns its report; None when not READY."""
+    runtime.refresh()
+    if status.current().state != status.READY:
+        return None
+    return send_job.start(bpy.context, tuple(channels), scope, force).report

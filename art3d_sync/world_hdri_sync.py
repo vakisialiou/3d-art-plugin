@@ -1,18 +1,24 @@
-"""Material Preview's HDRI payload from the active World: the Environment
-Texture's image if assigned, otherwise the Sky Texture baked to an equirect.
+"""Material Preview's HDRI from the active World: the Environment Texture's
+image if assigned (at most the scene's HDRI size), otherwise the Sky Texture
+baked to an equirect. A Send uploads the bytes as a resource and names it in
+`blender-world-hdri-sync`.
 """
 
-import base64
+import hashlib
 import math
 import os
 import tempfile
 
 import bpy
 
+from .bake_device import render_device
+from .constants import EXPORT_VERSION
+from .object_key import hash_tree
+
 _ENVIRONMENT_NODE_TYPE = "ShaderNodeTexEnvironment"
 _SKY_NODE_TYPE = "ShaderNodeTexSky"
 
-# 2:1 equirect ("1K HDRI"); a sky-only bake takes ~2s, fine for a blocking button.
+# 2:1 equirect ("1K HDRI"); a sky-only bake takes ~2 s, one step of a Send.
 _BAKE_RESOLUTION_X = 1024
 _BAKE_RESOLUTION_Y = 512
 _BAKE_SAMPLES = 16
@@ -41,52 +47,72 @@ def describe_world_hdri_source(context: bpy.types.Context) -> str | None:
     return None
 
 
-def build_world_hdri_sync(context: bpy.types.Context) -> dict | None:
-    world = context.scene.world
+# The last HDRIs built this session, by input key: an unchanged World is
+# neither baked nor re-encoded again (a sky bake isn't byte-identical twice,
+# so the browser couldn't tell it already has it).
+_built: dict = {}
+
+
+def build_hdri_cached(scene: bpy.types.Scene, max_width: int) -> tuple | None:
+    """build_hdri(), reused while the World's node tree and images are unchanged."""
+    world = scene.world
+    if world is None or world.node_tree is None:
+        return None
+    digest = hashlib.sha256(f"hdri/{EXPORT_VERSION}/{max_width}".encode())
+    hash_tree(digest, world.node_tree, set())
+    key = digest.hexdigest()
+    found = _built.get(key)
+    if found is None:
+        found = build_hdri(scene, max_width)
+        if found is not None:
+            _built.clear()
+            _built[key] = found
+    return found
+
+
+def build_hdri(scene: bpy.types.Scene, max_width: int) -> tuple | None:
+    """(name, Radiance HDR bytes) for Send HDRI: the Environment Texture's
+    image, at most `max_width` wide (0 = its own size), else the Sky Texture
+    baked to an equirect; None when the World has neither."""
+    world = scene.world
     if world is None or world.node_tree is None:
         return None
 
     env_node = _find_node(world, _ENVIRONMENT_NODE_TYPE)
     if env_node is not None and env_node.image is not None:
-        return {
-            "name": env_node.image.name,
-            "data": _export_image_hdri_base64(env_node.image),
-        }
+        return env_node.image.name, _export_image_hdri(env_node.image, max_width)
 
     if _find_node(world, _SKY_NODE_TYPE) is not None:
-        return {
-            "name": f"{context.scene.name} Sky (baked)",
-            "data": _bake_sky_hdri_base64(context),
-        }
+        return f"{scene.name} Sky (baked)", _bake_sky_hdri(scene)
 
     return None
 
 
-def _export_image_hdri_base64(image: bpy.types.Image) -> str:
+def _export_image_hdri(image: bpy.types.Image, max_width: int) -> bytes:
     # Always re-encoded to Radiance HDR so the browser needs only HDRLoader.
-    # Image.save(save_copy=True) honors the Image's own file_format (unlike
-    # save_render(), which uses the scene's render settings) and leaves
-    # filepath/source alone; file_format persists on the Image, so restore it.
-    original_format = image.file_format
-    image.file_format = "HDR"
+    # Saved from a copy: Image.save() honors the image's own file_format, and
+    # scaling for Max Texture must not touch the user's image.
+    copy = image.copy()
     try:
+        width, height = copy.size
+        if max_width and width > max_width:
+            copy.scale(max_width, max(1, round(height * max_width / width)))
+        copy.file_format = "HDR"
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = os.path.join(tmp_dir, "environment.hdr")
-            image.save(filepath=path, save_copy=True)
+            copy.save(filepath=path, save_copy=True)
             with open(path, "rb") as hdr_file:
-                data = hdr_file.read()
+                return hdr_file.read()
     finally:
-        image.file_format = original_format
-    return base64.b64encode(data).decode("ascii")
+        bpy.data.images.remove(copy)
 
 
-def _bake_sky_hdri_base64(context: bpy.types.Context) -> str:
+def _bake_sky_hdri(scene: bpy.types.Scene) -> bytes:
     # A procedural sky has no image, so render a world-only equirect capture.
     # Blender 5.2: the panorama type is `camera.data.panorama_type` (no
     # `.cycles` sub-struct) and defaults to FISHEYE_EQUISOLID, not equirect.
-    scene = context.scene
+    # A sky is a smooth gradient: 1K stays enough whatever the HDRI size.
     render = scene.render
-
     original_camera = scene.camera
     original_engine = render.engine
     original_res_x = render.resolution_x
@@ -126,7 +152,8 @@ def _bake_sky_hdri_base64(context: bpy.types.Context) -> str:
             path = os.path.join(tmp_dir, "world_bake.hdr")
             render.image_settings.file_format = "HDR"
             render.filepath = path
-            bpy.ops.render.render(write_still=True)
+            with render_device(scene):
+                bpy.ops.render.render(write_still=True)
             with open(path, "rb") as hdr_file:
                 data = hdr_file.read()
     finally:
@@ -144,4 +171,4 @@ def _bake_sky_hdri_base64(context: bpy.types.Context) -> str:
         bpy.data.objects.remove(cam_obj, do_unlink=True)
         bpy.data.cameras.remove(cam_data)
 
-    return base64.b64encode(data).decode("ascii")
+    return data

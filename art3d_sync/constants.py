@@ -6,9 +6,14 @@ DEFAULT_SERVER_URL = "http://localhost:3500"
 
 # The editor↔server contract version: a server on another version answers
 # 426 and the panel asks for an add-on update.
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 # Editor family, as the server lists devices and editors.
 CLIENT_KIND = "blender"
 
 PLUGIN_VERSION = ".".join(str(part) for part in bl_info["version"])
+
+# Bumped whenever the exported glb changes for the same scene (exporter
+# flags, packing, bake logic), so an object key from an older add-on never
+# matches a newer export.
+EXPORT_VERSION = 1

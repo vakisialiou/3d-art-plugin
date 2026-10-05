@@ -64,6 +64,13 @@ def refresh() -> None:
         traceback.print_exc()
 
 
+def request_redraw() -> None:
+    """Redraws every region now (a running Send's progress); see _redraw_if_changed."""
+    window_manager = bpy.context.window_manager
+    if window_manager is not None:
+        window_manager.art3d_redraw = (window_manager.art3d_redraw + 1) % 1_000_000
+
+
 def network_allowed(server_url: str) -> bool:
     """A local server is always reachable; any other needs Blender's Online Access."""
     return is_local(server_url) or bpy.app.online_access
@@ -178,6 +185,15 @@ def _redrawn(_self, _context) -> None:
 
 
 @persistent
+def _on_load(*_args) -> None:
+    # The scene a running Send reads is gone.
+    from . import send_job
+
+    send_job.cancel_active("Another file was opened")
+    _on_file_change()
+
+
+@persistent
 def _on_file_change(*_args) -> None:
     if _connection is not None:
         _connection.request_beat()
@@ -186,13 +202,16 @@ def _on_file_change(*_args) -> None:
 
 @persistent
 def _on_exit(*_args) -> None:
+    from . import send_job
+
+    send_job.cancel_active("Blender is closing")
     if _connection is not None:
         _connection.stop(leave=True)
 
 
 def _handlers() -> tuple:
     return (
-        (bpy.app.handlers.load_post, _on_file_change),
+        (bpy.app.handlers.load_post, _on_load),
         (bpy.app.handlers.save_post, _on_file_change),
         (bpy.app.handlers.exit_pre, _on_exit),
     )
