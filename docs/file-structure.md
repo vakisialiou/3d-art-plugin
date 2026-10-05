@@ -69,7 +69,7 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 └── icons/                       # dot_{green,amber,red,blue,grey}.png (icons.py)
 
 blender/                         # demo scenes/assets for testing sync — not addon source
-└── scripts/                     # headless generators of demo-scene content: add_coat_materials.py (idempotent) adds the Car Paint / Car Paint Worn coat demos to performance/materials.blend and materials/plastic_rubber.blend — run command in its docstring
+└── scripts/                     # headless generators of demo-scene content: add_coat_materials.py (idempotent) adds the Car Paint / Car Paint Worn coat demos to performance/materials.blend and materials/plastic_rubber.blend; build_dracula_castle.py builds the landing demo new-castle-2.blend (TARGET env picks the file) from scratch, with generated images saved next to textures/ — run commands in their docstrings
 ```
 
 Shipped as `art3d_sync.zip` (gitignored, built locally) — rebuild/reinstall rule: `CLAUDE.md`'s Critical Discipline. Payload shapes and the editor↔server connection: [`../../docs/sync-protocol.md`](../../docs/sync-protocol.md).
