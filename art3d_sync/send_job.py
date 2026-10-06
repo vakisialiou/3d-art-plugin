@@ -91,9 +91,7 @@ class SendJob:
         self._finished = False
         self._redrawn_at = 0.0
         self._presence_at = 0.0
-        self._objects_total = 0  # plan entries (meshes, empties, lights…)
-        self._meshes_total = 0  # entries with geometry: what the Objects row counts
-        self._meshes_sent = 0
+        self._objects_total = 0  # plan entries (meshes, empties, armatures, lights…): what the Objects row counts
         self._hashed = 0
         self._prepared = 0
         self._objects_sent = 0
@@ -129,8 +127,8 @@ class SendJob:
         return done / weights if weights else 0.0
 
     def objects_progress(self) -> tuple:
-        """(sent, total) objects with geometry, as the Objects row counts them."""
-        return self._meshes_sent, self._meshes_total
+        """(sent, total) objects, as the Objects row counts them."""
+        return self._objects_sent, self._objects_total
 
     def elapsed(self) -> float:
         return time.monotonic() - self.started_at
@@ -203,11 +201,9 @@ class SendJob:
         if self.uploader is None:
             return
         for tag in self.uploader.take_sent():
-            if tag in ("objects", "objects:mesh"):
+            if tag == "objects":
                 self._objects_sent += 1
-                if tag == "objects:mesh":
-                    self._meshes_sent += 1
-                self.rows["objects"].done = self._meshes_sent
+                self.rows["objects"].done = self._objects_sent
             elif tag in self.rows:
                 self.rows[tag].state = "sent"
         if self.uploader.error:
@@ -357,8 +353,7 @@ class SendJob:
             self.rows["objects"] = Row(state="skipped", note=reason)
             return
         self._objects_total = len(plan.entries)
-        self._meshes_total = sum(1 for entry in plan.entries if entry.exports)
-        self.rows["objects"] = Row(state="working", total=self._meshes_total)
+        self.rows["objects"] = Row(state="working", total=self._objects_total)
         signature = self.settings.signature()
         infos: dict = {}
         for entry in plan.entries:
@@ -402,10 +397,11 @@ class SendJob:
                 self._stats["unchanged"] += 1
             self.uploader.object(
                 scene_graph.entry_payload(entry, info.key if info else None),
-                "objects:mesh" if entry.exports else "objects",
+                "objects",
                 glb_key=info.key if info else "",
                 pack=pack,
             )
+            self._stats["objects"] += 1
             self._prepared += 1
             yield
 
@@ -423,7 +419,6 @@ class SendJob:
 
     def _count(self, info: object_key.Info) -> None:
         stats = self._stats
-        stats["objects"] += 1
         stats["materials"].update(name for name in info.materials if name)
         stats["triangles"] += info.triangles
         stats["draw_calls"] += max(1, info.draw_calls)
@@ -510,6 +505,7 @@ def start(context, channels: tuple, scope: str, force: bool = False) -> SendJob:
         force,
     )
     _active = job
+    project.record_binding(context.scene)
     runtime.connection().mark_sending("scene", 0, 100)
     if bpy.app.background:
         job.run_blocking()

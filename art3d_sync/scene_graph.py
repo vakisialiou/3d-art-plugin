@@ -59,6 +59,25 @@ def selected_objects(view_layer: bpy.types.ViewLayer) -> list:
     return [obj for obj in view_layer.objects if obj.select_get(view_layer=view_layer)]
 
 
+def _with_descendants(scene: bpy.types.Scene, roots: list) -> list:
+    """`roots` and every scene object under them — one pass over the scene,
+    not Object.children_recursive per root (each of those scans it all)."""
+    children: dict = {}
+    for obj in scene.objects:
+        if obj.parent is not None:
+            children.setdefault(obj.parent.name, []).append(obj)
+    result = list(roots)
+    seen = {obj.name for obj in roots}
+    pending = list(roots)
+    while pending:
+        for child in children.get(pending.pop().name, ()):
+            if child.name not in seen:
+                seen.add(child.name)
+                result.append(child)
+                pending.append(child)
+    return result
+
+
 def _depth(obj: bpy.types.Object) -> int:
     depth = 0
     while obj.parent is not None:
@@ -68,9 +87,14 @@ def _depth(obj: bpy.types.Object) -> int:
 
 
 def _covered(scene, view_layer, scope: str, skip_hidden: bool) -> tuple:
-    """(objects the scope covers, ancestors added, names that count as shown)."""
+    """(objects the scope covers, ancestors added, names that count as shown).
+    Selected covers what's selected with everything under it — a rig's
+    meshes, a group's members."""
     shown = renderable_names(scene, view_layer) if skip_hidden else {obj.name for obj in scene.objects}
-    base = selected_objects(view_layer) if scope == "SELECTED" else list(scene.objects)
+    if scope == "SELECTED":
+        base = _with_descendants(scene, selected_objects(view_layer))
+    else:
+        base = list(scene.objects)
     collected: dict = {}
     for obj in base:
         if obj.name not in shown:
@@ -136,13 +160,14 @@ def entry_payload(entry: Entry, glb_key: Optional[str]) -> dict:
 
 
 def summary(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, skip_hidden: bool) -> dict:
-    """What a Send would cover, for the panel's rows: object, material,
-    light and camera counts (no ids assigned, nothing written)."""
+    """What a Send would cover, for the panel's rows: object (every entry the
+    Objects row sends, whatever its type), material, light and camera counts
+    (no ids assigned, nothing written)."""
     objects, shown = _covered(scene, view_layer, scope, skip_hidden)
     meshes = [obj for obj in objects if obj.type in MESH_CONVERTIBLE_TYPES and obj.name in shown]
     materials = {slot.material.name_full for obj in meshes for slot in obj.material_slots if slot.material}
     return {
-        "objects": len(meshes),
+        "objects": len(objects),
         "materials": len(materials),
         "lights": len([obj for obj in objects if obj.type == "LIGHT"]),
         "cameras": len([obj for obj in objects if obj.type == "CAMERA"]),

@@ -2,7 +2,8 @@
 load/save handlers) hands the active scene's project, the file and the scene
 name to the worker, turns the worker's results into status.current(), and
 redraws the UI only when what it shows changed. It also opens the browser
-for a pairing code and caches the verified project's name on the scene.
+for a pairing code, caches the verified project's name on the scene and
+tells link_journal.py about file loads and saves.
 """
 
 import time
@@ -12,7 +13,7 @@ from typing import Optional
 import bpy
 from bpy.app.handlers import persistent
 
-from . import credentials, preferences, project, status
+from . import credentials, link_journal, preferences, project, status
 from .connection import Connection, is_local
 
 _TICK_S = 0.5
@@ -39,6 +40,7 @@ def register() -> None:
     bpy.types.WindowManager.art3d_redraw = bpy.props.IntProperty(options={"HIDDEN"}, update=_redrawn)
     for handlers, handler in _handlers():
         handlers.append(handler)
+    link_journal.started()
     if not bpy.app.timers.is_registered(_tick):
         bpy.app.timers.register(_tick, first_interval=_TICK_S, persistent=True)
 
@@ -190,11 +192,17 @@ def _on_load(*_args) -> None:
     from . import send_job
 
     send_job.cancel_active("Another file was opened")
+    link_journal.opened()
     _on_file_change()
 
 
 @persistent
-def _on_file_change(*_args) -> None:
+def _on_save(filepath="", *_args) -> None:
+    link_journal.saved(filepath)
+    _on_file_change()
+
+
+def _on_file_change() -> None:
     if _connection is not None:
         _connection.request_beat()
     refresh()
@@ -212,6 +220,6 @@ def _on_exit(*_args) -> None:
 def _handlers() -> tuple:
     return (
         (bpy.app.handlers.load_post, _on_load),
-        (bpy.app.handlers.save_post, _on_file_change),
+        (bpy.app.handlers.save_post, _on_save),
         (bpy.app.handlers.exit_pre, _on_exit),
     )

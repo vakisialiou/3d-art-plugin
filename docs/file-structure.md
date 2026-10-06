@@ -18,14 +18,15 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── view_header.py               # 3D Viewport header button: dot popover + Send All, or progress + Cancel; hidden by the preference
 │
 │   # Connection — device token, heartbeat, status
-├── credentials.py               # device tokens per server in <user config>/art3d/credentials.json (atomic write, 0600); env ART3D_TOKEN is used instead, never written
+├── user_config.py               # the add-on's folder under the user config dir (<user config>/art3d) and atomic JSON writes there (0600)
+├── credentials.py               # device tokens per server in <user config>/art3d/credentials.json; env ART3D_TOKEN is used instead, never written
 ├── api_client.py                # JSON over HTTP (urllib, certifi CA bundle) and request_bytes() for raw blobs; TransportError when there is no usable answer
 ├── pairing.py                   # RFC 8628 device-code flow: request_code(), poll_token() (pending / slow_down / denied / expired)
 ├── connection.py                # daemon worker thread, never bpy: pairing, heartbeat every 3 s (retries 1→2→5→10→30 s; carries a running Send's progress), project list, dev check; lock-guarded state + wake event; INSTANCE_ID per process; Session for other threads
-├── runtime.py                   # main-thread side: 0.5 s timer + load_post/save_post/exit_pre handlers — hands the worker the scene context, sets status.current(), redraws on change (request_redraw() for a running Send), cancels a Send when another file opens
+├── runtime.py                   # main-thread side: 0.5 s timer + load_post/save_post/exit_pre handlers — hands the worker the scene context, sets status.current(), redraws on change (request_redraw() for a running Send), cancels a Send when another file opens, tells link_journal about loads and saves
 ├── status.py                    # status machine, first failing check wins: NOT_CONNECTED (WAITING_APPROVAL) → ONLINE_ACCESS_OFF → CONNECTING/OFFLINE → OUTDATED → NO_PROJECT → NO_BROWSER → READY; UI texts
 ├── account_operators.py         # Connect account, Cancel, Open browser again, Disconnect (revokes server-side), Dev: connect without browser (local DEV_TOOLS server), Open Preferences
-├── project.py                   # the scene's binding: Scene properties art3d_project_id (raw field only with Developer Extras) + art3d_project_name (cached display name), bind()
+├── project.py                   # the scene's binding: Scene properties art3d_project_id (raw field only with Developer Extras) + art3d_project_name (cached display name), bind(); record_binding() journals the project a Send goes to
 ├── project_picker.py            # Scene.art3d_project_pick: virtual dropdown over the account's projects (last fetch); get/set read and write the binding, nothing saved
 ├── project_operators.py         # Refresh Projects, New project (named after the .blend or the scene — default_name(), then bound), Open in browser
 ├── headless.py                  # bind_project(), wait_until(), wait_ready(), send() for `blender -b` scripts, where no timers run (recipe: CLAUDE.md)
@@ -35,7 +36,7 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── send_operators.py            # Send All, Resend Everything, Cancel, and SendChannelBase (scope 'panel'|'selected'|'all', Shift+click = resend) every channel button builds on; Scene.art3d_scope
 ├── uploader.py                  # a Send's daemon thread, never bpy: /missing queries, raw /resource uploads (textures the browser lacks, then the glb), /sync messages in queue order, consecutive object entries batched; first error stops the Send
 ├── send_channels.py             # the small channels built from the job's own scene + selection (SendContext): render settings, sky, lights, cameras — a payload or the reason to skip
-├── scene_graph.py               # plan(): which objects a Send covers (scope, Skip Hidden, hidden ancestors kept for hierarchy), stable ids, scene-wide deletions; entry_payload() (transform from matrix_local, `glb` = object key); summary() for the panel rows
+├── scene_graph.py               # plan(): which objects a Send covers (scope — Selected takes everything under the selection too —, Skip Hidden, hidden ancestors kept for hierarchy), stable ids, scene-wide deletions; entry_payload() (transform from matrix_local, `glb` = object key); summary() for the panel rows (Objects counts every entry, whatever its type)
 ├── object_key.py                # compute(): an object's glb key — hash of the evaluated mesh, geometry-nodes instances (sources + matrices), modifiers, materials + node trees + images, rig + action, settings, EXPORT_VERSION — plus triangles / draw calls / surface area; hash_tree() (also keys the HDRI)
 ├── export_cache.py              # this session's exports by object key (512 MB, least recently used out): a browser lacking a glb gets it again without a bake
 ├── mesh_memory.py               # float data of the modifier-evaluated meshes keyed this session: a mesh with the same topology + integer data and floats within 8 ULPs of a remembered one hashes those floats, so rounding (Bevel's UVs aren't bit-stable) keeps the key; copies share it, an undone edit finds its earlier one (256 MB, least recently used out)
@@ -51,8 +52,9 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── material_coat.py             # coat post-pass on the exported glTF JSON (apply_coat_extras; inject_coat_extras on a GLB): extras.coat {ior?, tint?} and the clearcoatRoughnessFactor the exporter omits; owns inlined_principled() and has_coat(), which also gate material_bake's coat bakes
 ├── material_volume.py           # approximates Volume shaders (KHR_materials_volume nodes, or an alpha-blend fallback) — the exporter ignores the Volume socket
 ├── shader_bake.py               # shared bake plumbing: bake_size() (per-object resolution), new/tag/is_bake_image, flat_value() (a bake sampled where the faces land in UV space), find_principled_surface(), find_active_output(), emission-rewire socket bake, coat_disabled()
-├── object_id.py                 # resolve_stable_ids(objects): batch-resolves `art3d_id` (custom property, survives renames) so a duplicate colliding with its original is decided deterministically by name; get_existing_id(obj) is the side-effect-free lookup for the delete diff
-├── sent_ids.py                  # ids included in the last successful object Send (Scene property art3d_sent_ids) — scene_graph.plan() diffs it to detect deletions
+├── object_id.py                 # resolve_stable_ids(objects): batch-resolves `art3d_id` (custom property, survives renames) so a duplicate colliding with its original is decided deterministically (the holder this session knew under it, else by name); remembers each id by session_uid, so an undo that drops the property gets it back; get_existing_id(obj) is the side-effect-free lookup for the delete diff
+├── sent_ids.py                  # ids included in the last successful object Send (Scene property art3d_sent_ids, also remembered for the session) — scene_graph.plan() diffs it to detect deletions
+├── link_journal.py              # what the add-on wrote into the .blend since its last save (object ids, sent ids, the binding a Send used), mirrored to <user config>/art3d/links/<hash of the path>.json against that saved version (size + mtime): replayed by name when the same version is opened again, dropped on save or when the file changed on disk
 │
 │   # Channels — one *_operators.py (a SendChannelBase button) + *_sync.py (the payload) per concern
 ├── operators.py                 # ART3D_OT_send_scene — the Objects row

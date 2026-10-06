@@ -9,13 +9,12 @@ No bpy here: the connection worker thread reads and writes it too.
 
 import json
 import os
-import sys
-import tempfile
 import threading
 from typing import Optional
 
+from . import user_config
+
 _ENV_TOKEN = "ART3D_TOKEN"
-_FOLDER = "art3d"
 _FILE_NAME = "credentials.json"
 
 _lock = threading.Lock()
@@ -24,16 +23,7 @@ _env_rejected = False
 
 
 def path() -> str:
-    home = os.path.expanduser("~")
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
-    elif sys.platform == "darwin":
-        base = os.path.join(home, "Library", "Application Support")
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME", "")
-        if not os.path.isabs(base):
-            base = os.path.join(home, ".config")
-    return os.path.join(base, _FOLDER, _FILE_NAME)
+    return os.path.join(user_config.folder(), _FILE_NAME)
 
 
 def load(server_url: str) -> Optional[dict]:
@@ -128,22 +118,4 @@ def _read() -> dict:
 
 
 def _write(servers: dict) -> None:
-    """Atomic: a temp file in the same folder, then os.replace."""
-    target = path()
-    folder = os.path.dirname(target)
-    os.makedirs(folder, mode=0o700, exist_ok=True)
-    handle, temp_path = tempfile.mkstemp(prefix=".credentials-", suffix=".tmp", dir=folder)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as file:
-            json.dump({"servers": servers}, file, indent=2)
-            file.flush()
-            os.fsync(file.fileno())
-        if os.name == "posix":
-            os.chmod(temp_path, 0o600)
-        os.replace(temp_path, target)
-    except BaseException:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        raise
+    user_config.write_json(path(), {"servers": servers})

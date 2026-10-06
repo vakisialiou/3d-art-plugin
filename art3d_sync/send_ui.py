@@ -172,8 +172,8 @@ def draw_report(layout, context) -> None:
     failed = any(row.state == "failed" for row in report.rows.values())
     layout.label(text=report.message, icon="ERROR" if failed else "CHECKMARK")
     note(layout, f"In {duration(report.seconds)} · {ago(report.finished_at, now)}", icon="BLANK1")
-    if not report.objects:
-        return
+    if not report.draw_calls:
+        return  # nothing with geometry went
     box = layout.box()
     column = box.column(align=True)
     column.label(text="In the browser", icon="INFO")

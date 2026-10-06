@@ -2,10 +2,13 @@
 project dropdown or New project, never typed — the raw field shows only with
 Developer Extras on) and its cached display name. Plain scene data, not
 secrets: .blend files get shared, and a shared file keeps its binding until
-someone picks another project.
+someone picks another project. The binding a Send goes to is journaled with
+the ids it sends (link_journal.py), so an unsaved close loses neither.
 """
 
 import bpy
+
+from . import link_journal
 
 
 def register_properties() -> None:
@@ -37,3 +40,13 @@ def get_project_id(context: bpy.types.Context) -> str:
 def bind(scene: bpy.types.Scene, project_id: str, name: str) -> None:
     scene.art3d_project_id = project_id
     scene.art3d_project_name = name
+
+
+def record_binding(scene: bpy.types.Scene) -> None:
+    """A Send starts: its project stays journaled with the ids it sends."""
+    link_journal.record(
+        [
+            (scene, "art3d_project_id", scene.art3d_project_id),
+            (scene, "art3d_project_name", scene.art3d_project_name),
+        ]
+    )
