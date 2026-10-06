@@ -2,6 +2,9 @@
 image if assigned (at most the scene's HDRI size), otherwise the Sky Texture
 baked to an equirect. A Send uploads the bytes as a resource and names it in
 `blender-world-hdri-sync`.
+
+An image without pixels (its file missing or unreadable) raises Unreadable,
+whose message is the HDRI row's note; the browser keeps the HDRI it has.
 """
 
 import hashlib
@@ -24,14 +27,46 @@ _BAKE_RESOLUTION_Y = 512
 _BAKE_SAMPLES = 16
 
 
+class Unreadable(Exception):
+    """The Environment Texture's image has no pixels to send; the message
+    names its file."""
+
+
 def _find_node(world: bpy.types.World, bl_idname: str) -> bpy.types.ShaderNode | None:
     return next((node for node in world.node_tree.nodes if node.bl_idname == bl_idname), None)
 
 
+def _file_name(image: bpy.types.Image) -> str:
+    return bpy.path.basename(image.filepath) or image.name
+
+
+def _missing_file(image: bpy.types.Image) -> str:
+    """"Not found: <file>" when the image loads from a file that isn't there
+    (known without loading it), else ""."""
+    if image.source != "FILE" or image.packed_file is not None:
+        return ""
+    if os.path.isfile(bpy.path.abspath(image.filepath, library=image.library)):
+        return ""
+    return f"Not found: {_file_name(image)}"
+
+
+def hdri_problem(scene: bpy.types.Scene) -> str:
+    """Why the World's Environment Texture image won't send, as far as is
+    known without loading it; "" when nothing is wrong. The HDRI row shows
+    it before a Send."""
+    world = scene.world
+    if world is None or world.node_tree is None:
+        return ""
+    env_node = _find_node(world, _ENVIRONMENT_NODE_TYPE)
+    if env_node is None or env_node.image is None:
+        return ""
+    return _missing_file(env_node.image)
+
+
 def describe_world_hdri_source(context: bpy.types.Context) -> str | None:
-    """Cheap, side-effect-free preview of what `build_world_hdri_sync` would
-    send; shared by the operator's poll() and the panel label so they can't
-    disagree. None means nothing to send.
+    """Cheap, side-effect-free preview of what `build_hdri` would send; shared
+    by the panel row and the Send job so they can't disagree. None means
+    nothing to send.
     """
     world = context.scene.world
     if world is None or world.node_tree is None:
@@ -91,10 +126,13 @@ def build_hdri(scene: bpy.types.Scene, max_width: int) -> tuple | None:
 def _export_image_hdri(image: bpy.types.Image, max_width: int) -> bytes:
     # Always re-encoded to Radiance HDR so the browser needs only HDRLoader.
     # Saved from a copy: Image.save() honors the image's own file_format, and
-    # scaling for Max Texture must not touch the user's image.
+    # scaling for Max Texture must not touch the user's image. The copy reads
+    # the file again, so a missing or unreadable one leaves it without pixels.
     copy = image.copy()
     try:
         width, height = copy.size
+        if not width or not height:
+            raise Unreadable(_missing_file(image) or f"Can't read: {_file_name(image)}")
         if max_width and width > max_width:
             copy.scale(max_width, max(1, round(height * max_width / width)))
         copy.file_format = "HDR"

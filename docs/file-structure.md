@@ -31,7 +31,7 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── headless.py                  # bind_project(), wait_until(), wait_ready(), send() for `blender -b` scripts, where no timers run (recipe: CLAUDE.md)
 │
 │   # Send — the job, its network side, what it covers
-├── send_job.py                  # SendJob: a Send as short main-thread steps from a timer (small channels, HDRI, then objects: key → missing? → bake + export → upload), pause outside Object Mode / off its scene, Cancel, per-channel rows + fraction, Report; can_send() poll; start(); blocking loop in background mode
+├── send_job.py                  # SendJob: a Send as short main-thread steps from a timer (small channels, HDRI, then objects: key → missing? → bake + export → upload), pause outside Object Mode / off its scene, Cancel, per-channel rows + fraction (an unreadable HDRI fails only its own row), Report; can_send() poll; start(); blocking loop in background mode
 ├── send_operators.py            # Send All, Resend Everything, Cancel, and SendChannelBase (scope 'panel'|'selected'|'all', Shift+click = resend) every channel button builds on; Scene.art3d_scope
 ├── uploader.py                  # a Send's daemon thread, never bpy: /missing queries, raw /resource uploads (textures the browser lacks, then the glb), /sync messages in queue order, consecutive object entries batched; first error stops the Send
 ├── send_channels.py             # the small channels built from the job's own scene + selection (SendContext): render settings, sky, lights, cameras — a payload or the reason to skip
@@ -59,7 +59,7 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── world_operators.py           # ART3D_OT_send_world — the Sky row
 ├── world_sync.py                # find_world_sky(): the Sky Texture the World really renders, walked from the active World Output's Surface as Cycles evaluates the tree (muted/invalid links dropped), plus its Background/Emission strength → sky payload (sunDisc only under Cycles)
 ├── world_hdri_operators.py      # ART3D_OT_send_world_hdri — the HDRI row
-├── world_hdri_sync.py           # Material Preview's HDRI: the Environment Texture image re-encoded to Radiance HDR (at most the HDRI size, from a copy), or the Sky Texture baked to a 1K equirect; build_hdri_cached() skips an unchanged World
+├── world_hdri_sync.py           # Material Preview's HDRI: the Environment Texture image re-encoded to Radiance HDR (at most the HDRI size, from a copy), or the Sky Texture baked to a 1K equirect; build_hdri_cached() skips an unchanged World; an image without pixels raises Unreadable ("Not found: <file>" / "Can't read: <file>"), hdri_problem() flags a missing file before a Send
 ├── light_operators.py           # ART3D_OT_send_lighting — the Lights row
 ├── light_sync.py                # Light objects → world-space position + unit direction (computed in Python), type/color/energyWatts/normalize/castShadow/shadowSoftSize/shadowFilterRadius/spot/area shape+size fields (color and power fold EEVEE's exposure and temperature tint; normalize is sent, not folded in); same stable id as scene_graph.py
 ├── render_settings_operators.py # ART3D_OT_send_render_settings — the Render row

@@ -26,7 +26,7 @@ from .gltf_exporter import export_object
 from .resource_pack import content_key, gpu_bytes
 from .sent_ids import get_previous_sent_ids, set_sent_ids
 from .uploader import Uploader
-from .world_hdri_sync import build_hdri_cached, describe_world_hdri_source
+from .world_hdri_sync import Unreadable, build_hdri_cached, describe_world_hdri_source
 
 # Rows of the panel, top to bottom.
 CHANNELS = ("objects", "lights", "camera", "sky", "hdri", "render")
@@ -326,7 +326,12 @@ class SendJob:
         self.rows["hdri"] = Row(state="working", total=1)
         self.stage = "Preparing the HDRI…"
         yield self._unpaused
-        built = self._heavy(lambda: build_hdri_cached(self.scene, self.settings.hdri_width))
+        try:
+            built = self._heavy(lambda: build_hdri_cached(self.scene, self.settings.hdri_width))
+        except Unreadable as error:
+            # Only this row fails: no other channel depends on the HDRI.
+            self.rows["hdri"] = Row(state="failed", note=str(error))
+            return
         if built is None:
             self.rows["hdri"] = Row(state="skipped", note="No environment image or sky in the World")
             return
@@ -426,14 +431,19 @@ class SendJob:
 
 def _summary(objects: int, materials: int, rows: dict) -> str:
     sent = [channel for channel, row in rows.items() if row.state == "sent"]
+    failed = [channel for channel, row in rows.items() if row.state == "failed"]
     if "objects" in sent and objects:
         text = f"Sent {objects} object{'s' if objects != 1 else ''}"
         if materials:
             text += f", {materials} material{'s' if materials != 1 else ''}"
-        return text
-    if sent:
-        return "Sent " + ", ".join(_LABELS[channel] for channel in sent)
-    return "Nothing to send"
+    elif sent:
+        text = "Sent " + ", ".join(_LABELS[channel] for channel in sent)
+    else:
+        text = "" if failed else "Nothing to send"
+    if failed:
+        missed = ", ".join(_LABELS[channel] for channel in failed) + " not sent"
+        text = f"{text} · {missed}" if text else missed[0].upper() + missed[1:]
+    return text
 
 
 _LABELS = {

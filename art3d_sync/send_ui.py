@@ -8,7 +8,7 @@ import time
 from . import bake_device, scene_graph, send_job
 from .send_job import CHANNELS, DRAW_CALL_WARNING
 from .ui_text import ago, alert, duration, megabytes, note, primary, thousands, wrap
-from .world_hdri_sync import describe_world_hdri_source
+from .world_hdri_sync import describe_world_hdri_source, hdri_problem
 from .world_sync import find_world_sky
 
 _ROWS = {
@@ -42,6 +42,7 @@ def _summary(context) -> dict:
     found = scene_graph.summary(scene, context.view_layer, scene.art3d_scope, settings.skip_hidden)
     found["sky"] = _sky_text(scene)
     found["hdri"] = describe_world_hdri_source(context) or "None"
+    found["hdri_problem"] = hdri_problem(scene)
     view = scene.view_settings.view_transform
     found["render"] = f"{view} · {scene.render.resolution_x}×{scene.render.resolution_y}"
     _summary_cache.clear()
@@ -94,6 +95,9 @@ def draw_rows(layout, context, enabled: bool) -> None:
         info = right.row()
         if report is not None and channel in report.rows and report.rows[channel].state != "idle":
             _draw_report_cell(info, report, channel, now)
+        elif channel == "hdri" and found["hdri_problem"]:
+            info.alert = True
+            info.label(text=found["hdri_problem"])
         else:
             info.active = False
             info.label(text=_info(channel, found))
@@ -119,7 +123,7 @@ def _draw_job_cell(layout, job, channel: str) -> None:
         cell.label(text=row.note or "Skipped")
     elif row.state == "failed":
         cell.alert = True
-        cell.label(text="Failed")
+        cell.label(text=row.note or "Failed")
     elif row.state == "waiting":
         cell.active = False
         cell.label(text="Waiting")
@@ -138,7 +142,7 @@ def _draw_report_cell(layout, report, channel: str, now: float) -> None:
         layout.label(text=row.note or "Nothing to send")
     else:
         layout.alert = True
-        layout.label(text="Not sent")
+        layout.label(text=row.note or "Not sent")
 
 
 def draw_progress(layout, job) -> None:
@@ -165,7 +169,8 @@ def draw_report(layout, context) -> None:
         alert(box, report.message)
         wrap(box, context, f"Stopped after {duration(report.seconds)}. What was sent stays in the browser.", icon="BLANK1")
         return
-    layout.label(text=report.message, icon="CHECKMARK")
+    failed = any(row.state == "failed" for row in report.rows.values())
+    layout.label(text=report.message, icon="ERROR" if failed else "CHECKMARK")
     note(layout, f"In {duration(report.seconds)} · {ago(report.finished_at, now)}", icon="BLANK1")
     if not report.objects:
         return
