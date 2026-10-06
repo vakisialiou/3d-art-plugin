@@ -49,6 +49,16 @@ _SOCKET_SKIP = _ID_SKIP | {
     "is_output", "is_linked", "is_unavailable", "is_icon_visible", "node", "links", "type",
     "display_shape", "pin_gizmo", "is_inactive",
 }
+# Modifier state no evaluation reads: panel and list UI, the pin (the stack order
+# is hashed anyway), and what evaluation only reports (node warnings, cache info).
+# Dynamic Paint's ui_type picks canvas or brush evaluation, so it stays.
+_MODIFIER_SKIP = _ID_SKIP | {
+    "show_expanded", "is_active", "use_pin_to_last", "show_group_selector", "show_manage_panel",
+    "open_output_attributes_panel", "open_manage_panel", "open_bake_panel",
+    "open_named_attributes_panel", "open_bake_data_blocks_panel", "open_warnings_panel",
+    "open_adaptive_subdivision_panel", "open_advanced_panel", "panels", "node_warnings",
+    "info", "active_particle_target_index",
+}
 _MAX_ITEMS = 512
 
 # Packed image bytes hashed once a session: (name, size) → digest.
@@ -104,7 +114,7 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
         _hash_instances(digest, obj, depsgraph, info, seen)
     for modifier in obj.modifiers:
         _text(digest, f"modifier:{modifier.type}")
-        _hash_rna(digest, modifier, _ID_SKIP, 1, set())
+        _hash_rna(digest, modifier, _MODIFIER_SKIP, 1, set())
     for slot in obj.material_slots:
         material = slot.material
         info.materials.append(material.name_full if material else "")
