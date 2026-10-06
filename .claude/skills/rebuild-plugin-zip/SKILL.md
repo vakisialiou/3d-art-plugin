@@ -7,7 +7,7 @@ description: Rebuild and reinstall art3d_sync.zip after changing anything under 
 
 Blender runs the installed zip, not this source tree — a source edit does nothing until rebuilt and reinstalled.
 
-1. From the `3d-art-plugin` repo root (`src/` goes into the zip as `art3d_sync/`, the add-on's module name):
+1. From the `3d-art-plugin` repo root (the whole `src/` goes into the zip as `art3d_sync/`, the add-on's module name):
    ```bash
    python3 - <<'EOF'
    import pathlib, zipfile
