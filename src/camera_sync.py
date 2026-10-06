@@ -11,17 +11,7 @@ guides, `show_*` and background images (no Camera view overlays), and the
 PANO/CUSTOM lens settings (those types are sent as PERSP).
 """
 
-import bpy
-
 from .object_id import resolve_stable_ids
-
-
-def collect_selected_cameras(context: bpy.types.Context) -> list:
-    return [obj for obj in context.selected_objects if obj.type == "CAMERA"]
-
-
-def collect_all_scene_cameras(context: bpy.types.Context) -> list:
-    return [obj for obj in context.scene.objects if obj.type == "CAMERA"]
 
 
 def build_camera_sync(objects: list) -> list:

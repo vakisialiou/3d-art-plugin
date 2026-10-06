@@ -35,14 +35,6 @@ _LOCAL_FORWARD = Vector((0.0, 0.0, -1.0))
 _ELLIPSE_SHAPES = ("DISK", "ELLIPSE")
 
 
-def collect_selected_lights(context: bpy.types.Context) -> list:
-    return [obj for obj in context.selected_objects if obj.type == "LIGHT"]
-
-
-def collect_all_scene_lights(context: bpy.types.Context) -> list:
-    return [obj for obj in context.scene.objects if obj.type == "LIGHT"]
-
-
 def _effective_color(light: bpy.types.Light) -> list:
     """BKE_light_color(): the color times the blackbody tint when use_temperature is on."""
     color = [light.color.r, light.color.g, light.color.b]

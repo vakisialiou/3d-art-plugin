@@ -298,7 +298,7 @@ class SendJob:
         for channel in _SMALL:
             if channel not in self.channels:
                 continue
-            built = send_channels.build(channel, context, self.scope)
+            built = send_channels.build(channel, context, self.scope, self.settings.skip_hidden)
             if built.skip:
                 self.rows[channel] = Row(state="skipped", note=built.skip)
                 continue

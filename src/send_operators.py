@@ -12,7 +12,7 @@ from . import send_job
 
 _SCOPES = [
     ("panel", "Panel", "The panel's Selected / All choice"),
-    ("selected", "Selected", "The selected objects (plus their parents, for the hierarchy)"),
+    ("selected", "Selected", "The selected objects and everything under them (plus their parents, for the hierarchy)"),
     ("all", "All", "The whole scene"),
 ]
 
@@ -22,7 +22,7 @@ def register_properties() -> None:
         name="Send",
         description="What the Send buttons cover",
         items=[
-            ("SELECTED", "Selected", "The selected objects, lights and cameras (plus parents of selected objects)"),
+            ("SELECTED", "Selected", "The selected objects and everything under them (plus their parents, for the hierarchy)"),
             ("ALL", "All", "Everything in the scene"),
         ],
         default="ALL",

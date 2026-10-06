@@ -86,24 +86,43 @@ def _depth(obj: bpy.types.Object) -> int:
     return depth
 
 
-def _covered(scene, view_layer, scope: str, skip_hidden: bool) -> tuple:
-    """(objects the scope covers, ancestors added, names that count as shown).
-    Selected covers what's selected with everything under it — a rig's
-    meshes, a group's members."""
-    shown = renderable_names(scene, view_layer) if skip_hidden else {obj.name for obj in scene.objects}
+def _named(scene, view_layer, scope: str) -> list:
+    """The objects a scope names. Selected names what's selected with
+    everything under it — a rig's meshes, a group's members."""
     if scope == "SELECTED":
-        base = _with_descendants(scene, selected_objects(view_layer))
-    else:
-        base = list(scene.objects)
+        return _with_descendants(scene, selected_objects(view_layer))
+    return list(scene.objects)
+
+
+def _shown(scene, view_layer, skip_hidden: bool) -> set:
+    """Names of the objects that count as shown: with Skip Hidden, those a render shows."""
+    return renderable_names(scene, view_layer) if skip_hidden else {obj.name for obj in scene.objects}
+
+
+def _covered(named: list, shown: set) -> list:
+    """The shown objects of `named` with their ancestors, shown or not, so the
+    hierarchy always resolves."""
     collected: dict = {}
-    for obj in base:
+    for obj in named:
         if obj.name not in shown:
             continue
         current = obj
         while current is not None and current.name not in collected:
             collected[current.name] = current
             current = current.parent
-    return list(collected.values()), shown
+    return list(collected.values())
+
+
+def _of_type(named: list, shown: set, object_type: str) -> list:
+    return [obj for obj in named if obj.type == object_type and obj.name in shown]
+
+
+def data_objects(scene, view_layer, scope: str, skip_hidden: bool, object_type: str) -> list:
+    """The lights or cameras (`object_type`) whose data a Send carries: the
+    shown ones among the objects the scope names, as the Objects row covers
+    them. An ancestor added only for the hierarchy carries none: a render
+    shows nothing of it."""
+    return _of_type(_named(scene, view_layer, scope), _shown(scene, view_layer, skip_hidden), object_type)
 
 
 def plan(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, skip_hidden: bool) -> Plan:
@@ -111,7 +130,8 @@ def plan(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, sk
     deletions it carries. Deletion is scene-wide, whatever the scope: an
     object sent before and no longer shown (deleted, or now disabled in
     renders with Skip Hidden on) goes from the browser."""
-    objects, shown = _covered(scene, view_layer, scope, skip_hidden)
+    shown = _shown(scene, view_layer, skip_hidden)
+    objects = _covered(_named(scene, view_layer, scope), shown)
     objects.sort(key=_depth)
     names = {obj.name for obj in objects}
     ids = resolve_stable_ids(objects)
@@ -161,14 +181,17 @@ def entry_payload(entry: Entry, glb_key: Optional[str]) -> dict:
 
 def summary(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, scope: str, skip_hidden: bool) -> dict:
     """What a Send would cover, for the panel's rows: object (every entry the
-    Objects row sends, whatever its type), material, light and camera counts
-    (no ids assigned, nothing written)."""
-    objects, shown = _covered(scene, view_layer, scope, skip_hidden)
+    Objects row sends, whatever its type), material, and the light and camera
+    counts the Lights and Camera rows send (data_objects()) — no ids
+    assigned, nothing written."""
+    named = _named(scene, view_layer, scope)
+    shown = _shown(scene, view_layer, skip_hidden)
+    objects = _covered(named, shown)
     meshes = [obj for obj in objects if obj.type in MESH_CONVERTIBLE_TYPES and obj.name in shown]
     materials = {slot.material.name_full for obj in meshes for slot in obj.material_slots if slot.material}
     return {
         "objects": len(objects),
         "materials": len(materials),
-        "lights": len([obj for obj in objects if obj.type == "LIGHT"]),
-        "cameras": len([obj for obj in objects if obj.type == "CAMERA"]),
+        "lights": len(_of_type(named, shown, "LIGHT")),
+        "cameras": len(_of_type(named, shown, "CAMERA")),
     }
