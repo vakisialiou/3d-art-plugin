@@ -70,9 +70,6 @@ art3d_sync/                      # addon package (naming rule: CLAUDE.md)
 ├── camera_operators.py          # ART3D_OT_send_camera — the Camera row
 ├── camera_sync.py               # Camera objects → optics only (lens, sensor size + fit, shift, clip, ortho scale, viewport display size); transform stays scene_graph.py's job
 └── icons/                       # dot_{green,amber,red,blue,grey}.png (icons.py)
-
-blender/                         # demo scenes/assets for testing sync — not addon source
-└── scripts/                     # headless generators of demo-scene content: add_coat_materials.py (idempotent) adds the Car Paint / Car Paint Worn coat demos to performance/materials.blend and materials/plastic_rubber.blend; build_dracula_castle.py builds the landing demo and game level new-castle-3.blend (TARGET env picks the file) from the dracula/ package — layout.py (where things are: spawn, paths, crossings), terrain.py, castle.py, nature.py + scatter.py (geometry-nodes instanced plants and rocks in 128 m chunks), water.py, props.py, effects.py, sky.py, textures.py (generated tileable maps) — with generated images saved next to textures/; stone_detail.py (system python3 + numpy/Pillow) derives the cracked *_detail_* stone maps it prefers — run commands in their docstrings
 ```
 
 Shipped as `art3d_sync.zip` (gitignored, built locally) — rebuild/reinstall rule: `CLAUDE.md`'s Critical Discipline. Payload shapes and the editor↔server connection: [`../../docs/sync-protocol.md`](../../docs/sync-protocol.md).
