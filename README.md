@@ -30,20 +30,27 @@
 ## ⚙️ Пересборка после изменений (обязательно)
 
 ```bash
-rm -f art3d_sync.zip && zip -r art3d_sync.zip art3d_sync -x "*.pyc" -x "__pycache__/*"
+python3 - <<'EOF'
+import pathlib, zipfile
+src = pathlib.Path("src")
+with zipfile.ZipFile("art3d_sync.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+    for path in [src, *sorted(src.rglob("*"))]:
+        if "__pycache__" not in path.parts:
+            archive.write(path, "art3d_sync" / path.relative_to(src))
+EOF
 ```
 
-Установленная копия сама не обновляется — без пересборки, переустановки и перезапуска Blender изменения не подхватятся.
+Папка `src/` попадает в zip как `art3d_sync/` — под этим именем Blender знает аддон. Установленная копия сама не обновляется — без пересборки, переустановки и перезапуска Blender изменения не подхватятся.
 
 ## 🌐 Конфигурация
 
-- Сервер: переменная окружения `ART3D_SERVER_URL` > поле **Server URL** в настройках аддона (видно с включёнными Developer Extras) > `DEFAULT_SERVER_URL` в `art3d_sync/constants.py` (`http://localhost:3500` — порт `3d-art-api`).
+- Сервер: переменная окружения `ART3D_SERVER_URL` > поле **Server URL** в настройках аддона (видно с включёнными Developer Extras) > `DEFAULT_SERVER_URL` в `src/constants.py` (`http://localhost:3500` — порт `3d-art-api`).
 - Токен устройства: `credentials.json` в `~/.config/art3d/` (Linux, учитывает `$XDG_CONFIG_HOME`), `~/Library/Application Support/art3d/` (macOS), `%APPDATA%\art3d\` (Windows) — по записи на сервер. `ART3D_TOKEN` (headless/CI) используется вместо файла и на диск не пишется; рецепт headless-запуска — [`CLAUDE.md`](CLAUDE.md).
 - Не-локальный сервер требует включённого Online Access (Preferences → System); с localhost аддон работает всегда.
 
 ## 📚 Документация
 
 - [`CLAUDE.md`](CLAUDE.md) — дисциплина пересборки, конвенции, неочевидные моменты экспорта
-- [`docs/file-structure.md`](docs/file-structure.md) — роли файлов `art3d_sync/`
+- [`docs/file-structure.md`](docs/file-structure.md) — роли файлов `src/`
 - [`../CLAUDE.md`](../CLAUDE.md) — архитектура всего проекта
 - [`../docs/sync-protocol.md`](../docs/sync-protocol.md) — формат payload'ов, которые собирает этот аддон

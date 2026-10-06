@@ -4,7 +4,7 @@ Blender addon (Python, `bpy`) that reads the current scene and sends it to `3d-a
 
 ## Structure
 
-- `art3d_sync/` — the addon (per-file roles: `docs/file-structure.md`). The folder name must stay a valid Python identifier (no hyphens, no leading digit) — Blender imports it as a module.
+- `src/` — the addon (per-file roles: `docs/file-structure.md`). The zip ships it as the folder `art3d_sync/`: Blender imports an add-on by its folder name and keys its preferences to it, so that name never changes (and stays a valid Python identifier).
 - **Connection** — plain HTTP, stdlib only (`urllib`; Blender's Python has no socketio/requests), no socket at all, so a main thread stalled in a bake can't drop a connection. A computer connects once: Connect account runs a device-code pairing approved in the browser, and the device token lands in `art3d/credentials.json` under the user config dir, keyed by server, never in a .blend. A daemon worker thread (`connection.py`) heartbeats every 3 s and does the pairing and the project list; `runtime.py`'s 0.5 s timer feeds it the active scene's project and turns its results into the status (`status.py`) that drives the panel, the status-bar item, the header button and every Send's poll(). Each scene keeps its own project binding (`project.py`), picked from the account's projects.
 - **Send** — a button starts a job (`send_job.py`) and returns at once; the job runs from a timer as short main-thread steps (one object's bake + export is the longest), so Blender keeps drawing in between, and its uploads go to their own thread (`uploader.py`). Objects are named by a hash of their export inputs (`object_key.py`); the job asks the open browsers which glbs they lack (`/api/editor/missing`) and bakes + exports only those. Blobs go raw to `/api/editor/resource` (a gzip glb naming its textures by key, each texture once), then the `/api/editor/sync` messages that name them. Web Optimization (`web_settings.py`, per scene) sets texture/bake/HDRI sizes, WebP/PNG and meshopt. Wire format: `../docs/sync-protocol.md`.
 - Test and demo scenes live in the sibling repo `../3d-art-assets` (Git LFS; its rules in its `CLAUDE.md`). This repo holds only the add-on's code — no `.blend` or other binaries.
@@ -37,7 +37,7 @@ ART3D_SERVER_URL=http://localhost:3600 ART3D_TOKEN=art3d_… XDG_CONFIG_HOME=/tm
 
 ```python
 import bpy
-from art3d_sync import headless  # enabled add-on, or sys.path.insert(0, "<repo>"); import art3d_sync; art3d_sync.register()
+from art3d_sync import headless  # the enabled add-on, or the repo's src/ loaded as below
 
 headless.bind_project("<project id>")
 status = headless.wait_ready(30)  # READY once a browser has the project open; else the last status
@@ -47,13 +47,23 @@ print(report.ok, report.message, report.exported, report.unchanged)
 
 The per-channel operators (`bpy.ops.art3d.send_scene(scope="all")`, `send_camera`, …) run to the end the same way.
 
+Without installing, a script loads the repo's `src/` under the add-on's module name first:
+
+```python
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("art3d_sync", "<repo>/src/__init__.py")
+art3d_sync = sys.modules["art3d_sync"] = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(art3d_sync)
+art3d_sync.register()
+```
+
 `ART3D_TOKEN` is used instead of the credentials file and never written; a DEV_TOOLS server issues one with `POST /api/dev/device-token {"user": "claude"}`. A temp `XDG_CONFIG_HOME` keeps a test's pairing away from the real credentials file. `headless.wait_until(predicate)` waits for any other status (e.g. a pairing code).
 
 ## Doc Map
 
 | File | Load it when… |
 |---|---|
-| `docs/file-structure.md` | navigating `art3d_sync/` or deciding where a new file belongs |
+| `docs/file-structure.md` | navigating `src/` or deciding where a new file belongs |
 | `../docs/sync-protocol.md` | the wire payloads this plugin builds, transform/axis/rotation rules, the editor↔server connection |
 | `../3d-art-web/test/material/README.md` | changing material export |
 | `../docs/tech-decisions.md` | cross-repo architecture facts |

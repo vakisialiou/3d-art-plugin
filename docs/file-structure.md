@@ -1,9 +1,9 @@
 # File Structure — 3d-art-plugin
 
-Load when navigating `art3d_sync/` or deciding where a new file belongs (placement rule: one `*_operators.py` + `*_sync.py` pair per sync concern — `CLAUDE.md`'s Conventions).
+Load when navigating `src/` or deciding where a new file belongs (placement rule: one `*_operators.py` + `*_sync.py` pair per sync concern — `CLAUDE.md`'s Conventions).
 
 ```
-art3d_sync/                      # addon package (naming rule: CLAUDE.md)
+src/                             # addon package, zipped as art3d_sync/ (CLAUDE.md)
 ├── __init__.py                  # bl_info + register()/unregister()
 ├── constants.py                 # DEFAULT_SERVER_URL, PROTOCOL_VERSION, CLIENT_KIND, PLUGIN_VERSION (from bl_info), EXPORT_VERSION (part of every object key)
 ├── preferences.py               # AddonPreferences: show_header_button; server_url (shown with Developer Extras) — server_url(): env ART3D_SERVER_URL > preference > default
