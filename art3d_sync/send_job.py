@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 import bpy
 
-from . import bake_device, export_cache, object_key, project, runtime, scene_graph, send_channels, status, web_settings
+from . import bake_device, export_cache, mesh_memory, object_key, project, runtime, scene_graph, send_channels, status, web_settings
 from .gltf_exporter import export_object
 from .resource_pack import content_key, gpu_bytes
 from .sent_ids import get_previous_sent_ids, set_sent_ids
@@ -517,3 +517,4 @@ def cancel_active(message: str = "Cancelled") -> None:
 def unregister() -> None:
     cancel_active("Add-on disabled")
     export_cache.clear()
+    mesh_memory.clear()
