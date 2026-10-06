@@ -4,7 +4,9 @@ key hashes everything the export reads — the evaluated mesh (geometry, UVs,
 attributes), the modifier stack, every slot's material with its node trees
 and images, a rig's bones and action — plus the add-on's export version and
 the scene's Web Optimization signature. Two objects that would export the
-same glb (copies of one mesh) get the same key and travel once.
+same glb (copies of one mesh) get the same key and travel once. A modifier
+stack's float output counts within rounding of what this session already
+hashed (mesh_memory.py), as evaluation isn't bit-stable.
 
 Over-inclusion only costs a re-export; a missed input would leave a stale
 object in the browser, which is why "Resend Everything" exists.
@@ -25,6 +27,7 @@ from typing import Optional
 import bpy
 import numpy as np
 
+from . import mesh_memory
 from .constants import EXPORT_VERSION
 
 # Types the glTF exporter (export_apply=True) evaluates to a mesh.
@@ -75,9 +78,12 @@ class Info:
     materials: list = field(default_factory=list)  # names, for the unique-material count
 
 
+def _encode(text: str) -> bytes:
+    return text.encode("utf-8", "surrogatepass") + b"\0"
+
+
 def _text(digest, text: str) -> None:
-    digest.update(text.encode("utf-8", "surrogatepass"))
-    digest.update(b"\0")
+    digest.update(_encode(text))
 
 
 def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
@@ -150,33 +156,42 @@ def _hash_mesh(digest, mesh, obj: bpy.types.Object, info: Info) -> None:
     if mesh is None or len(mesh.vertices) == 0:
         _text(digest, "empty")
         return
+    parts = []  # bytes, or float arrays mesh_memory may swap for rounding-equal ones
     loops = np.empty(len(mesh.loops), dtype=np.int32)
     mesh.loops.foreach_get("vertex_index", loops)
-    digest.update(loops.tobytes())
+    parts.append(loops.tobytes())
     count = len(mesh.polygons)
     for name, dtype in (("loop_start", np.int32), ("loop_total", np.int32), ("material_index", np.int32)):
         values = np.empty(count, dtype=dtype)
         mesh.polygons.foreach_get(name, values)
-        digest.update(values.tobytes())
+        parts.append(values.tobytes())
         if name == "material_index":
             info.draw_calls = int(np.unique(values).size) if count else 0
     for attribute in mesh.attributes:
         if attribute.name.startswith("."):
             continue  # internal state: selection, topology (hashed above)
-        _text(digest, f"attribute:{attribute.name}/{attribute.domain}/{attribute.data_type}")
+        parts.append(_encode(f"attribute:{attribute.name}/{attribute.domain}/{attribute.data_type}"))
         spec = _ATTRIBUTE_FIELDS.get(attribute.data_type)
         if spec is None:
             continue
         name, width, dtype = spec
         values = np.empty(len(attribute.data) * width, dtype=dtype)
         attribute.data.foreach_get(name, values)
-        digest.update(values.tobytes())
+        parts.append(values if values.dtype.kind == "f" else values.tobytes())
     for group in obj.vertex_groups:
-        _text(digest, f"group:{group.index}:{group.name}")
+        parts.append(_encode(f"group:{group.index}:{group.name}"))
     if _armature_target(obj) is not None:
-        for vertex in mesh.vertices:
-            for element in vertex.groups:
-                _text(digest, f"{vertex.index}:{element.group}:{element.weight!r}")
+        parts.append(
+            b"".join(
+                _encode(f"{vertex.index}:{element.group}:{element.weight!r}")
+                for vertex in mesh.vertices
+                for element in vertex.groups
+            )
+        )
+    if obj.modifiers:  # a plain mesh is its own data, bit for bit
+        parts = mesh_memory.recall(parts, obj.name_full)
+    for part in parts:
+        digest.update(part if isinstance(part, bytes) else part.tobytes())
 
     mesh.calc_loop_triangles()
     info.triangles = len(mesh.loop_triangles)
