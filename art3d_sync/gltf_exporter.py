@@ -55,15 +55,28 @@ _COMMON = {
     "export_animation_mode": "ACTIVE_ACTIONS",
     # Only the color attributes a material reads.
     "export_all_vertex_colors": False,
+    # Geometry-nodes instances (scattered plants, rocks) as GPU instances:
+    # each source mesh once plus a transform per instance, an InstancedMesh
+    # per source in the browser. Their source materials export as they are.
+    "export_gn_mesh": True,
+    "export_gpu_instances": True,
 }
 
 
-def _format_options(settings: Snapshot) -> dict:
+def _format_options(settings: Snapshot, animated: bool = False) -> dict:
+    # Meshopt quantizes animation rotations to about a degree: harmless on a
+    # wing, metres of jitter on anything a bone swings at a distance (a sky
+    # that turns round the scene). Animated exports keep float tracks.
     return {
         "export_image_format": "WEBP" if settings.texture_format == "WEBP" else "AUTO",
         "export_image_quality": 90,
-        "export_meshopt_compression_enable": settings.mesh_compression == "MESHOPT",
+        "export_meshopt_compression_enable": settings.mesh_compression == "MESHOPT" and not animated,
     }
+
+
+def _animated(obj: bpy.types.Object) -> bool:
+    armature = _find_armature_target(obj)
+    return armature is not None and armature.animation_data is not None and armature.animation_data.action is not None
 
 
 def export_object(obj: bpy.types.Object, settings: Snapshot, surface_area: float = 0.0) -> Pack:
@@ -74,7 +87,7 @@ def export_object(obj: bpy.types.Object, settings: Snapshot, surface_area: float
                 filepath=os.path.join(tmp_dir, "object.gltf"),
                 export_format="GLTF_SEPARATE",
                 **_COMMON,
-                **_format_options(settings),
+                **_format_options(settings, _animated(obj)),
             )
             return pack_separate(tmp_dir, "object.gltf", lambda gltf: apply_coat_extras(gltf, coat_extras))
 
@@ -89,7 +102,7 @@ def export_object_glb(obj: bpy.types.Object, settings: Optional[Snapshot] = None
                 filepath=glb_path,
                 export_format="GLB",
                 **_COMMON,
-                **_format_options(settings),
+                **_format_options(settings, _animated(obj)),
             )
             with open(glb_path, "rb") as glb_file:
                 return inject_coat_extras(glb_file.read(), coat_extras)

@@ -5,6 +5,9 @@ baseColorFactor becomes glTF's default white, not the node's value).
 
 - Base Color / Roughness: DIFFUSE(COLOR) / ROUGHNESS passes; view-dependent
   graphs need the Emission-rewire bake instead (`_has_view_dependent_node`).
+  A Base Color in glTF's own COLOR_0 × baseColorTexture form — a Color
+  Attribute, alone or multiplied (Mix, Multiply, factor 1) by a direct Image
+  Texture — exports natively and is left alone (`_needs_base_color_bake`).
 - Normal: a Bump or procedural graph has no glTF equivalent; Image Texture ->
   Normal Map exports natively and is left alone.
 - Emission: glTF textures only Emission Color (io_scene_gltf2's
@@ -56,6 +59,36 @@ def _needs_factor_bake(socket) -> bool:
     if socket is None or not socket.is_linked:
         return False
     return socket.links[0].from_node.bl_idname != "ShaderNodeTexImage"
+
+
+def _is_color_attribute(node) -> bool:
+    return node.bl_idname == "ShaderNodeVertexColor" or (
+        node.bl_idname == "ShaderNodeAttribute" and node.attribute_type == "GEOMETRY"
+    )
+
+
+def _needs_base_color_bake(socket) -> bool:
+    """As _needs_factor_bake, but the exporter's own vertex-colour forms export
+    as COLOR_0 (glTF multiplies it into the base colour): a Color Attribute,
+    or one Mix (Multiply, factor 1) of a Color Attribute and an Image Texture."""
+    if not _needs_factor_bake(socket):
+        return False
+    node = socket.links[0].from_node
+    if _is_color_attribute(node):
+        return False
+    if node.bl_idname != "ShaderNodeMix" or node.data_type != "RGBA" or node.blend_type != "MULTIPLY":
+        return True
+    factor = next(s for s in node.inputs if s.identifier == "Factor_Float")
+    if factor.is_linked or factor.default_value != 1.0:
+        return True
+    sources = []
+    for identifier in ("A_Color", "B_Color"):
+        operand = next(s for s in node.inputs if s.identifier == identifier)
+        if not operand.is_linked:
+            return True
+        sources.append(operand.links[0].from_node)
+    kinds = sorted("attribute" if _is_color_attribute(n) else n.bl_idname for n in sources)
+    return kinds != ["ShaderNodeTexImage", "attribute"]
 
 
 def _needs_normal_bake(socket) -> bool:
@@ -121,7 +154,7 @@ def _needs_bake(material: Optional[bpy.types.Material]) -> bool:
     if principled is None:
         return False
     return (
-        _needs_factor_bake(principled.inputs.get("Base Color"))
+        _needs_base_color_bake(principled.inputs.get("Base Color"))
         or _needs_factor_bake(principled.inputs.get("Roughness"))
         or _needs_normal_bake(principled.inputs.get("Normal"))
         or _needs_emission_bake(principled)
@@ -317,7 +350,7 @@ def _bake_base_channels(
     index: int,
     mesh: bpy.types.Mesh,
 ) -> None:
-    if _needs_factor_bake(principled.inputs.get("Base Color")):
+    if _needs_base_color_bake(principled.inputs.get("Base Color")):
         _bake_factor_channel(
             material,
             principled,

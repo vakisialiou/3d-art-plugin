@@ -9,6 +9,9 @@ same glb (copies of one mesh) get the same key and travel once.
 Over-inclusion only costs a re-export; a missed input would leave a stale
 object in the browser, which is why "Resend Everything" exists.
 
+Geometry-nodes instances count too: each source mesh and its materials,
+every instance's matrix (gltf_exporter sends them as GPU instances).
+
 The same pass counts what the report shows: triangles, draw calls (one per
 material used), world-space surface area (By Object Size bakes).
 """
@@ -90,10 +93,12 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
         _hash_mesh(digest, mesh, obj, info)
     finally:
         evaluated.to_mesh_clear()
+    seen: set = set()
+    if any(modifier.type == "NODES" for modifier in obj.modifiers):
+        _hash_instances(digest, obj, depsgraph, info, seen)
     for modifier in obj.modifiers:
         _text(digest, f"modifier:{modifier.type}")
         _hash_rna(digest, modifier, _ID_SKIP, 1, set())
-    seen: set = set()
     for slot in obj.material_slots:
         material = slot.material
         info.materials.append(material.name_full if material else "")
@@ -103,6 +108,42 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
         _hash_rig(digest, obj, armature)
     info.key = "g:" + digest.hexdigest()[:32]
     return info
+
+
+def _hash_instances(digest, obj: bpy.types.Object, depsgraph, info: Info, seen: set) -> None:
+    """Geometry-nodes instances, which export as GPU instances: each source's
+    evaluated mesh and materials once, every instance's matrix relative to
+    `obj` (moving `obj` itself doesn't change its glb)."""
+    to_local = obj.matrix_world.inverted()
+    counts: dict = {}
+    matrices = []
+    for instance in depsgraph.object_instances:
+        if not instance.is_instance or instance.parent is None or instance.parent.original != obj:
+            continue
+        source = instance.object.original  # the instance itself is valid only while iterating
+        name = source.name_full
+        if name not in counts:
+            counts[name] = [source, 0]
+        counts[name][1] += 1
+        matrices.append((name, to_local @ instance.matrix_world))
+    for name in sorted(counts):
+        source, count = counts[name]
+        _text(digest, f"instance-source:{name}:{count}")
+        part = Info(key="")
+        evaluated = source.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            _hash_mesh(digest, mesh, source, part)
+        finally:
+            evaluated.to_mesh_clear()
+        for slot in source.material_slots:
+            _hash_material(digest, slot.material, seen)
+        info.triangles += part.triangles * count
+        info.draw_calls += part.draw_calls
+        info.surface_area += part.surface_area * count
+    for name, matrix in matrices:
+        _text(digest, name)
+        digest.update(np.array(matrix, dtype=np.float32).tobytes())
 
 
 def _hash_mesh(digest, mesh, obj: bpy.types.Object, info: Info) -> None:
