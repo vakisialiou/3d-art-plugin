@@ -108,11 +108,14 @@ def export_object_glb(obj: bpy.types.Object, settings: Optional[Snapshot] = None
                 return inject_coat_extras(glb_file.read(), coat_extras)
 
 
-def _deselect_all(view_layer: bpy.types.ViewLayer) -> None:
+def _selected(view_layer: bpy.types.ViewLayer) -> list:
     # A just-removed object can linger as None until the view layer updates.
-    for selected in list(view_layer.objects.selected):
-        if selected is not None:
-            selected.select_set(False)
+    return [selected for selected in view_layer.objects.selected if selected is not None]
+
+
+def _deselect_all(view_layer: bpy.types.ViewLayer) -> None:
+    for selected in _selected(view_layer):
+        selected.select_set(False)
 
 
 @contextmanager
@@ -141,7 +144,7 @@ def _prepared(obj: bpy.types.Object, settings: Snapshot, surface_area: float):
     scene = bpy.context.scene
     # Snapshot before obj.copy(): the copy inherits obj's selected state and
     # would otherwise be restored as part of the original selection.
-    original_selection = list(view_layer.objects.selected)
+    original_selection = _selected(view_layer)
     original_active = view_layer.objects.active
 
     armature = _find_armature_target(obj)
