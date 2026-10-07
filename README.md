@@ -1,3 +1,5 @@
+- test
+  
 # 🧩 3d-art-plugin
 
 Аддон Blender `art3d_sync` («3D Art Sync») проекта [3d-art](../README.md) — читает текущую сцену и отправляет её через [3d-art-api](../3d-art-api) (обычный HTTP) в открытый проект [3d-art-web](../3d-art-web) для живого превью. Собран под Blender 5.2.1, только стандартная библиотека Python (`urllib`) — pip внутри Blender не нужен.
