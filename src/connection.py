@@ -1,7 +1,7 @@
 """The link to the Skyray server. A daemon worker thread does the device
-pairing, the heartbeat every few seconds and the project-list fetch. Send
-announces itself with beat_now() on the main thread; the other one-off calls
-(the sync upload, New project, the dev token) borrow the token via session().
+pairing, the heartbeat every few seconds and the project-list fetch. A Send
+hands its progress to that heartbeat (mark_sending); the one-off calls (the
+sync upload, New project, the dev token) borrow the token via session().
 
 The worker never touches bpy. The main thread (runtime.py) hands it the
 active scene's context and reads its results through one lock; a wake event
@@ -300,34 +300,17 @@ class Connection:
 
     # ── Calls on the main thread ─────────────────────────────────────
 
-    def begin_sending(self, channel: str, total: int) -> str:
-        """Marks a send in progress and announces it with one synchronous
-        heartbeat, so the server keeps listing this editor while the main
-        thread is busy exporting. "" when it went through, else why not.
-        """
-        with self._lock:
-            self._sending = {"channel": channel, "done": 0, "total": max(0, int(total))}
-        return self.beat_now(_ANNOUNCE_TIMEOUT_S)
-
-    def set_progress(self, done: int) -> None:
-        """A send's progress, handed to the worker at most once a second."""
-        with self._lock:
-            if self._sending is None:
-                return
-            self._sending = {**self._sending, "done": max(0, int(done))}
-            now = time.monotonic()
-            if now - self._progress_beat_at < _PROGRESS_BEAT_S:
-                return
-            self._progress_beat_at = now
-            self._beat_requested = True
-        self._wake.set()
-
-    def mark_sending(self, channel: str, done: int, total: int) -> None:
-        """A Send's progress without a synchronous heartbeat: the worker
-        announces it (at once when it starts, then at most once a second)."""
+    def mark_sending(self, objects: int, sent: int, percent: int) -> None:
+        """A Send's progress: its objects, how many are in the browsers, and
+        the whole Send in percent. The worker announces it at once when the
+        Send starts, then at most once a second."""
         with self._lock:
             starting = self._sending is None
-            self._sending = {"channel": channel, "done": max(0, int(done)), "total": max(0, int(total))}
+            self._sending = {
+                "objects": max(0, int(objects)),
+                "sent": max(0, int(sent)),
+                "percent": min(100, max(0, int(percent))),
+            }
             now = time.monotonic()
             if not starting and now - self._progress_beat_at < _PROGRESS_BEAT_S:
                 return
@@ -342,25 +325,6 @@ class Connection:
             self._sending = None
             self._beat_requested = True
         self._wake.set()
-
-    def beat_now(self, timeout: float = _TIMEOUT_S) -> str:
-        """One heartbeat on the calling thread; "" when it succeeded, else why not."""
-        with self._lock:
-            server, token, generation, online = self._server_url, self._token(), self._generation, self._online
-        if token is None:
-            return status.NOT_CONNECTED_TEXT
-        if not online:
-            return status.ONLINE_OFF_TEXT
-        code, data = self._heartbeat(server, token, generation, timeout)
-        if code is None:
-            return f"Can't reach the server: {data}"
-        if api_client.ok(code):
-            return ""
-        if code == 401:
-            return status.REVOKED_TEXT
-        if code == 426:
-            return status.OUTDATED_TEXT
-        return api_client.error_message(code, data)
 
     def session(self) -> Optional["Session"]:
         """The device token in use, for a call made outside the worker; None when not connected."""

@@ -78,7 +78,15 @@ class SKYRAY_OT_disconnect(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return status.current().connected
+        current = status.current()
+        if not current.connected:
+            return False
+        # Disconnect revokes the token on the server; forgetting it only here
+        # would leave the device connected in the browser.
+        if not current.online:
+            cls.poll_message_set(f"{status.ONLINE_OFF_TEXT}: Disconnect also revokes this computer on the server")
+            return False
+        return True
 
     def execute(self, context):
         runtime.connection().disconnect()

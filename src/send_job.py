@@ -204,7 +204,7 @@ class SendJob:
         now = time.monotonic()
         if now - self._presence_at >= _PRESENCE_EVERY_S:
             self._presence_at = now
-            runtime.connection().mark_sending("scene", round(self.fraction() * 100), 100)
+            runtime.connection().mark_sending(self._objects_total, self._objects_sent, round(self.fraction() * 100))
         if now - self._redrawn_at >= _REDRAW_EVERY_S:
             self._redrawn_at = now
             runtime.request_redraw()
@@ -548,7 +548,7 @@ def start(context, channels: tuple, scope: str, force: bool = False) -> SendJob:
     )
     _active = job
     project.record_binding(context.scene)
-    runtime.connection().mark_sending("scene", 0, 100)
+    runtime.connection().mark_sending(0, 0, 0)
     if bpy.app.background:
         job.run_blocking()
     else:
