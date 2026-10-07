@@ -1,5 +1,6 @@
-"""The status dots — green ready, amber a step is needed, red a problem,
-blue sending, grey not connected — as preview icons (icons/dot_*.png)."""
+"""The logo (icons/logo.png) and the status dots — green ready, amber a step
+is needed, red a problem, blue sending, grey not connected — as preview icons
+(icons/dot_*.png)."""
 
 import os
 
@@ -17,6 +18,7 @@ def register() -> None:
     _previews = bpy.utils.previews.new()
     for name in _NAMES:
         _previews.load(name, os.path.join(_DIRECTORY, f"dot_{name}.png"), "IMAGE")
+    _previews.load("logo", os.path.join(_DIRECTORY, "logo.png"), "IMAGE")
 
 
 def unregister() -> None:
@@ -28,6 +30,15 @@ def unregister() -> None:
 
 def dot(name: str) -> int:
     """The icon_value of a status dot; 0 (no icon) before register()."""
+    return _icon(name)
+
+
+def logo() -> int:
+    """The icon_value of the logo; 0 (no icon) before register()."""
+    return _icon("logo")
+
+
+def _icon(name: str) -> int:
     if _previews is None or name not in _previews:
         return 0
     return _previews[name].icon_id

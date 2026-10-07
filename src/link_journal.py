@@ -5,7 +5,7 @@ own (an ID's session_uid lives one session), so these exist only as data in
 the file: closed without saving, or after a crash, they would be gone and
 the next Send would make every object new in the browser.
 
-A journal belongs to one saved version of one file: <config>/art3d/links/
+A journal belongs to one saved version of one file: <config>/skyray/links/
 <hash of the path>.json, holding the size and mtime that version has on
 disk. It records each object and scene under its name in that version — a
 rename never saved reverts with the file, and whatever was created after the
@@ -151,7 +151,7 @@ def _read() -> Optional[dict]:
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as error:
-        print(f"3D Art: ignoring unreadable {_file()}: {error}")
+        print(f"Skyray: ignoring unreadable {_file()}: {error}")
         return None
     return data if isinstance(data, dict) else None
 
@@ -160,7 +160,7 @@ def _write() -> None:
     try:
         user_config.write_json(_file(), {"path": _path, "version": _version, **_entries})
     except OSError as error:
-        print(f"3D Art: couldn't write {_file()}: {error}")
+        print(f"Skyray: couldn't write {_file()}: {error}")
 
 
 def _delete() -> None:
@@ -169,4 +169,4 @@ def _delete() -> None:
     except FileNotFoundError:
         pass
     except OSError as error:
-        print(f"3D Art: couldn't delete {_file()}: {error}")
+        print(f"Skyray: couldn't delete {_file()}: {error}")

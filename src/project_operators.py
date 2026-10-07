@@ -16,8 +16,8 @@ _TIMEOUT_S = 10.0
 _SERVER_STATES = (status.NO_PROJECT, status.NO_BROWSER, status.READY)
 
 
-class ART3D_OT_refresh_projects(bpy.types.Operator):
-    bl_idname = "art3d.refresh_projects"
+class SKYRAY_OT_refresh_projects(bpy.types.Operator):
+    bl_idname = "skyray.refresh_projects"
     bl_label = "Refresh Projects"
     bl_description = "Fetches this account's project list again"
 
@@ -34,10 +34,10 @@ class ART3D_OT_refresh_projects(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_new_project(bpy.types.Operator):
-    bl_idname = "art3d.new_project"
+class SKYRAY_OT_new_project(bpy.types.Operator):
+    bl_idname = "skyray.new_project"
     bl_label = "New project"
-    bl_description = "Creates a 3D Art project named after this .blend file (or the scene) and binds this scene to it"
+    bl_description = "Creates a Skyray project named after this .blend file (or the scene) and binds this scene to it"
 
     name: bpy.props.StringProperty(
         name="Name",
@@ -66,10 +66,10 @@ class ART3D_OT_new_project(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_open_project(bpy.types.Operator):
-    bl_idname = "art3d.open_project"
+class SKYRAY_OT_open_project(bpy.types.Operator):
+    bl_idname = "skyray.open_project"
     bl_label = "Open in browser"
-    bl_description = "Opens this scene's project in the 3D Art web app"
+    bl_description = "Opens this scene's project in the Skyray web app"
 
     @classmethod
     def poll(cls, context):

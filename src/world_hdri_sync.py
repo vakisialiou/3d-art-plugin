@@ -162,10 +162,10 @@ def _bake_sky_hdri(scene: bpy.types.Scene) -> bytes:
     original_filepath = render.filepath
     original_hide_render = {obj: obj.hide_render for obj in scene.objects}
 
-    cam_data = bpy.data.cameras.new("Art3dHdriBakeCam")
+    cam_data = bpy.data.cameras.new("SkyrayHdriBakeCam")
     cam_data.type = "PANO"
     cam_data.panorama_type = "EQUIRECTANGULAR"
-    cam_obj = bpy.data.objects.new("Art3dHdriBakeCam", cam_data)
+    cam_obj = bpy.data.objects.new("SkyrayHdriBakeCam", cam_data)
     scene.collection.objects.link(cam_obj)
     cam_obj.location = (0.0, 0.0, 0.0)
     # An unrotated camera looks down -Z, centering the equirect on the nadir.

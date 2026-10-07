@@ -46,7 +46,7 @@ def request_code(server_url: str, name: str, app_version: str) -> Grant:
     try:
         status, data = api_client.request("POST", f"{server_url}/api/devices/code", body=body, timeout=_TIMEOUT_S)
     except api_client.TransportError as error:
-        print(f"3D Art: can't reach {server_url}: {error}")
+        print(f"Skyray: can't reach {server_url}: {error}")
         raise PairingError("Can't reach the server") from error
     if not api_client.ok(status) or not isinstance(data, dict) or not isinstance(data.get("deviceCode"), str):
         raise PairingError(api_client.error_message(status, data))

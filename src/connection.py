@@ -1,4 +1,4 @@
-"""The link to the 3D Art server. A daemon worker thread does the device
+"""The link to the Skyray server. A daemon worker thread does the device
 pairing, the heartbeat every few seconds and the project-list fetch. Send
 announces itself with beat_now() on the main thread; the other one-off calls
 (the sync upload, New project, the dev token) borrow the token via session().
@@ -131,7 +131,7 @@ class Connection:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop = threading.Event()
-            self._thread = threading.Thread(target=self._run, args=(self._stop,), name="art3d-connection", daemon=True)
+            self._thread = threading.Thread(target=self._run, args=(self._stop,), name="skyray-connection", daemon=True)
             self._thread.start()
 
     def stop(self, leave: bool) -> None:
@@ -645,7 +645,7 @@ def _store(write, *args, **kwargs) -> None:
     try:
         write(*args, **kwargs)
     except OSError as error:
-        print(f"3D Art: couldn't update {credentials.path()}: {error}")
+        print(f"Skyray: couldn't update {credentials.path()}: {error}")
 
 
 def _token_of(entry: Optional[dict]) -> Optional[str]:

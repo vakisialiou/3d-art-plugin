@@ -51,7 +51,7 @@ def _size_items(values: tuple, original: str) -> list:
     return items
 
 
-class ART3D_WebSettings(bpy.types.PropertyGroup):
+class SKYRAY_WebSettings(bpy.types.PropertyGroup):
     max_texture: bpy.props.EnumProperty(
         name="Max Texture",
         description="Largest texture side sent to the web; bigger images are scaled down for the export only",
@@ -119,7 +119,7 @@ def _size(value: str) -> int:
 
 
 def snapshot(scene: bpy.types.Scene) -> Snapshot:
-    settings = scene.art3d_web
+    settings = scene.skyray_web
     return Snapshot(
         max_texture=_size(settings.max_texture),
         bake_size=0 if settings.bake_size == "AUTO" else int(settings.bake_size),
@@ -132,10 +132,10 @@ def snapshot(scene: bpy.types.Scene) -> Snapshot:
 
 
 def register() -> None:
-    bpy.utils.register_class(ART3D_WebSettings)
-    bpy.types.Scene.art3d_web = bpy.props.PointerProperty(type=ART3D_WebSettings)
+    bpy.utils.register_class(SKYRAY_WebSettings)
+    bpy.types.Scene.skyray_web = bpy.props.PointerProperty(type=SKYRAY_WebSettings)
 
 
 def unregister() -> None:
-    del bpy.types.Scene.art3d_web
-    bpy.utils.unregister_class(ART3D_WebSettings)
+    del bpy.types.Scene.skyray_web
+    bpy.utils.unregister_class(SKYRAY_WebSettings)

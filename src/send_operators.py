@@ -18,7 +18,7 @@ _SCOPES = [
 
 
 def register_properties() -> None:
-    bpy.types.Scene.art3d_scope = bpy.props.EnumProperty(
+    bpy.types.Scene.skyray_scope = bpy.props.EnumProperty(
         name="Send",
         description="What the Send buttons cover",
         items=[
@@ -30,7 +30,7 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
-    del bpy.types.Scene.art3d_scope
+    del bpy.types.Scene.skyray_scope
 
 
 class SendChannelBase:
@@ -55,7 +55,7 @@ class SendChannelBase:
         return self.execute(context)
 
     def execute(self, context):
-        scope = context.scene.art3d_scope if self.scope == "panel" else self.scope.upper()
+        scope = context.scene.skyray_scope if self.scope == "panel" else self.scope.upper()
         job = send_job.start(context, self.channels, scope, self.force)
         if job.report is not None and not job.report.ok:
             self.report({"ERROR"}, job.report.message)
@@ -65,8 +65,8 @@ class SendChannelBase:
         return {"FINISHED"}
 
 
-class ART3D_OT_send_all(SendChannelBase, bpy.types.Operator):
-    bl_idname = "art3d.send_all"
+class SKYRAY_OT_send_all(SendChannelBase, bpy.types.Operator):
+    bl_idname = "skyray.send_all"
     bl_label = "Send All"
     bl_description = (
         "Sends objects, lights, camera, sky, HDRI and render settings to the browser. "
@@ -76,8 +76,8 @@ class ART3D_OT_send_all(SendChannelBase, bpy.types.Operator):
     channels = send_job.CHANNELS
 
 
-class ART3D_OT_resend_all(SendChannelBase, bpy.types.Operator):
-    bl_idname = "art3d.resend_all"
+class SKYRAY_OT_resend_all(SendChannelBase, bpy.types.Operator):
+    bl_idname = "skyray.resend_all"
     bl_label = "Resend Everything"
     bl_description = "Bakes, exports and sends the whole scene again, ignoring what the browser already has"
 
@@ -89,8 +89,8 @@ class ART3D_OT_resend_all(SendChannelBase, bpy.types.Operator):
         return self.execute(context)
 
 
-class ART3D_OT_cancel_send(bpy.types.Operator):
-    bl_idname = "art3d.cancel_send"
+class SKYRAY_OT_cancel_send(bpy.types.Operator):
+    bl_idname = "skyray.cancel_send"
     bl_label = "Cancel"
     bl_description = "Stops the Send after the current step; what was already sent stays in the browser"
 

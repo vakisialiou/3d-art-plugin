@@ -60,7 +60,7 @@ class Uploader:
         self._sent_tags: list = []  # tags whose message reached the server, in order
         self.bytes_sent = 0
         self.error = ""
-        self._thread = threading.Thread(target=self._run, name="art3d-upload", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="skyray-upload", daemon=True)
         self._thread.start()
 
     # ── Main thread ──────────────────────────────────────────────────
@@ -209,16 +209,16 @@ class Uploader:
 
     def _post_blob(self, key: str, kind: str, mime: str, data: bytes, encoding: str = "", refs=()) -> None:
         headers = {
-            "x-art3d-project": self._project_id,
-            "x-art3d-instance": INSTANCE_ID,
-            "x-art3d-key": key,
-            "x-art3d-kind": kind,
-            "x-art3d-mime": mime,
+            "x-skyray-project": self._project_id,
+            "x-skyray-instance": INSTANCE_ID,
+            "x-skyray-key": key,
+            "x-skyray-kind": kind,
+            "x-skyray-mime": mime,
         }
         if encoding:
-            headers["x-art3d-encoding"] = encoding
+            headers["x-skyray-encoding"] = encoding
         if refs:
-            headers["x-art3d-refs"] = ",".join(refs)
+            headers["x-skyray-refs"] = ",".join(refs)
         self._call(lambda: api_client.request_bytes(
             "POST", self._url("resource"), token=self._session.token, data=data, headers=headers,
             timeout=_BLOB_TIMEOUT_S,
@@ -231,7 +231,7 @@ class Uploader:
             code, data = send()
         except api_client.TransportError as error:
             self._connection.request_beat()
-            raise _Failure(f"Can't reach 3D Art: {error}") from error
+            raise _Failure(f"Can't reach Skyray: {error}") from error
         if api_client.ok(code):
             viewers = data.get("viewers") if isinstance(data, dict) else None
             if isinstance(viewers, int):

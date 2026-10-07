@@ -45,7 +45,7 @@ from .shader_bake import (
 # A tangent-space normal map pixel that means "no change": +Z, encoded 0..1.
 _FLAT_NORMAL = (0.5, 0.5, 1.0)
 
-_BAKE_IMAGE_PREFIX = "__art3d_bake"
+_BAKE_IMAGE_PREFIX = "__skyray_bake"
 
 # These passes read input values without light transport (DIFFUSE +
 # {'COLOR'} is pure albedo), so a low fixed count suffices; more samples only

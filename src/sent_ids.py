@@ -9,7 +9,7 @@ import bpy
 
 from . import link_journal
 
-_SENT_IDS_PROP = "art3d_sent_ids"
+_SENT_IDS_PROP = "skyray_sent_ids"
 # Scene session_uid → the value this session last wrote.
 _session: dict = {}
 

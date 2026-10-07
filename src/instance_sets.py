@@ -5,7 +5,7 @@ tree made — and each group is one set: an entry drawing its group's mesh
 once per placement.
 
 A placement is a position, a rotation, a scale and a tint in the owner's
-space, packed as the browser's `p:` blob (`Placements.encode` in 3d-art-web);
+space, packed as the browser's `p:` blob (`Placements.encode` in skyray-web);
 Blender's instances are untinted (white). A set of a source object sends the
 glb that object's own entry would send and names the object in `instanceOf`,
 so the browser links the sets of one source; a node-made mesh exports from a

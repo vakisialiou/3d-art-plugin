@@ -1,7 +1,7 @@
 """This computer's device tokens, one per server, in one file outside
 Blender's folders and never in a .blend: they survive restarts, File → New,
 other .blend files and Blender upgrades. Keyed by server URL so a dev and a
-production server coexist. ART3D_TOKEN (headless/CI) is used instead of the
+production server coexist. SKYRAY_TOKEN (headless/CI) is used instead of the
 file and never written to disk.
 
 No bpy here: the connection worker thread reads and writes it too.
@@ -14,11 +14,11 @@ from typing import Optional
 
 from . import user_config
 
-_ENV_TOKEN = "ART3D_TOKEN"
+_ENV_TOKEN = "SKYRAY_TOKEN"
 _FILE_NAME = "credentials.json"
 
 _lock = threading.Lock()
-# Set once the server rejected ART3D_TOKEN: the process stops offering it.
+# Set once the server rejected SKYRAY_TOKEN: the process stops offering it.
 _env_rejected = False
 
 
@@ -111,7 +111,7 @@ def _read() -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as error:
-        print(f"3D Art: ignoring unreadable {path()}: {error}")
+        print(f"Skyray: ignoring unreadable {path()}: {error}")
         return {}
     servers = data.get("servers") if isinstance(data, dict) else None
     return servers if isinstance(servers, dict) else {}

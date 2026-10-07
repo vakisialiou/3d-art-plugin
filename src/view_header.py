@@ -1,4 +1,4 @@
-"""The 3D Art button in the 3D Viewport's header: the status dot (a popover
+"""The Skyray button in the 3D Viewport's header: the status dot (a popover
 with the setup card or project) and Send All — or a running Send's progress
 and Cancel. Hidden with the add-on preference."""
 
@@ -20,11 +20,11 @@ def _draw(self, context):
         bar.ui_units_x = 5
         fraction = job.fraction()
         bar.progress(factor=fraction, type="BAR", text=f"{round(fraction * 100)}%")
-    row.popover(panel="ART3D_PT_status", text="3D Art", icon_value=dot(color))
+    row.popover(panel="SKYRAY_PT_status", text="Skyray", icon_value=dot(color))
     if job is not None:
-        row.operator("art3d.cancel_send", text="", icon="X")
+        row.operator("skyray.cancel_send", text="", icon="X")
     else:
-        row.operator("art3d.send_all", text="", icon="EXPORT")
+        row.operator("skyray.send_all", text="", icon="EXPORT")
 
 
 def register() -> None:

@@ -2,7 +2,7 @@
 geometry + materials only; the Send builds the transform from scene_graph.py.
 
 export_yup=False breaks the glTF spec on purpose: only our own GLTFLoader reads
-this file, and 3d-art-web's scene is Z-up like Blender (THREE.Object3D.DEFAULT_UP
+this file, and skyray-web's scene is Z-up like Blender (THREE.Object3D.DEFAULT_UP
 in render.worker.ts), so there is no axis conversion anywhere in the pipeline.
 
 export_object() is the Send's path: textures at most the scene's Max Texture,

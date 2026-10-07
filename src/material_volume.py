@@ -41,7 +41,7 @@ _VOLUME_NODE_TYPES = {
     "ShaderNodeVolumePrincipled",
 }
 
-_BAKE_IMAGE_PREFIX = "__art3d_volume"
+_BAKE_IMAGE_PREFIX = "__skyray_volume"
 
 # At or below this, Transmission Weight counts as none → alpha-blend fallback.
 _TRANSMISSION_EPSILON = 0.001

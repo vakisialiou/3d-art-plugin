@@ -1,4 +1,4 @@
-"""The 3D Art item in Blender's status bar, always visible: the status dot
+"""The Skyray item in Blender's status bar, always visible: the status dot
 and a few words — clicking opens the setup card or project as a popover —
 or, while a Send runs, its progress bar with a Cancel button."""
 
@@ -10,9 +10,9 @@ from .icons import dot
 _NAME_MAX = 24
 
 
-class ART3D_PT_status(bpy.types.Panel):
-    bl_idname = "ART3D_PT_status"
-    bl_label = "3D Art"
+class SKYRAY_PT_status(bpy.types.Panel):
+    bl_idname = "SKYRAY_PT_status"
+    bl_label = "Skyray"
     bl_space_type = "STATUSBAR"
     bl_region_type = "HEADER"
     bl_ui_units_x = 14
@@ -25,8 +25,8 @@ def text(current: status.Status, scene) -> str:
     color, word = connection_ui.state_dot(current, scene)
     if current.state in (status.READY, status.NO_BROWSER) and color != "red":
         name = _short(current.project_name)
-        return f"3D Art · {name}" if current.state == status.READY else f"3D Art · {name} · open browser"
-    return f"3D Art · {word}"
+        return f"Skyray · {name}" if current.state == status.READY else f"Skyray · {name} · open browser"
+    return f"Skyray · {word}"
 
 
 def _short(name: str) -> str:
@@ -41,12 +41,12 @@ def _draw(self, context):
         bar = row.row(align=True)
         bar.ui_units_x = 12
         fraction = job.fraction()
-        bar.progress(factor=fraction, type="BAR", text=f"3D Art · Sending {round(fraction * 100)}%")
-        row.operator("art3d.cancel_send", text="", icon="X")
+        bar.progress(factor=fraction, type="BAR", text=f"Skyray · Sending {round(fraction * 100)}%")
+        row.operator("skyray.cancel_send", text="", icon="X")
         return
     current = status.current()
     color, _ = connection_ui.state_dot(current, context.scene)
-    self.layout.popover(panel=ART3D_PT_status.bl_idname, text=text(current, context.scene), icon_value=dot(color))
+    self.layout.popover(panel=SKYRAY_PT_status.bl_idname, text=text(current, context.scene), icon_value=dot(color))
 
 
 def register() -> None:

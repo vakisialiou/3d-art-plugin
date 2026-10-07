@@ -19,10 +19,10 @@ def device_name() -> str:
     return (socket.gethostname() or "").strip()[:_NAME_MAX] or "Blender"
 
 
-class ART3D_OT_connect(bpy.types.Operator):
-    bl_idname = "art3d.connect"
+class SKYRAY_OT_connect(bpy.types.Operator):
+    bl_idname = "skyray.connect"
     bl_label = "Connect account"
-    bl_description = "Connects this computer to your 3D Art account: approve the code in the browser that opens"
+    bl_description = "Connects this computer to your Skyray account: approve the code in the browser that opens"
 
     @classmethod
     def poll(cls, context):
@@ -41,8 +41,8 @@ class ART3D_OT_connect(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_cancel_connect(bpy.types.Operator):
-    bl_idname = "art3d.cancel_connect"
+class SKYRAY_OT_cancel_connect(bpy.types.Operator):
+    bl_idname = "skyray.cancel_connect"
     bl_label = "Cancel"
     bl_description = "Stops waiting for the approval in the browser"
 
@@ -56,8 +56,8 @@ class ART3D_OT_cancel_connect(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_reopen_link(bpy.types.Operator):
-    bl_idname = "art3d.reopen_link"
+class SKYRAY_OT_reopen_link(bpy.types.Operator):
+    bl_idname = "skyray.reopen_link"
     bl_label = "Open browser again"
     bl_description = "Opens the approval page for this code again"
 
@@ -71,10 +71,10 @@ class ART3D_OT_reopen_link(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_disconnect(bpy.types.Operator):
-    bl_idname = "art3d.disconnect"
+class SKYRAY_OT_disconnect(bpy.types.Operator):
+    bl_idname = "skyray.disconnect"
     bl_label = "Disconnect"
-    bl_description = "Disconnects this computer from your 3D Art account and revokes its device token"
+    bl_description = "Disconnects this computer from your Skyray account and revokes its device token"
 
     @classmethod
     def poll(cls, context):
@@ -83,12 +83,12 @@ class ART3D_OT_disconnect(bpy.types.Operator):
     def execute(self, context):
         runtime.connection().disconnect()
         runtime.refresh()
-        self.report({"INFO"}, "Disconnected from 3D Art")
+        self.report({"INFO"}, "Disconnected from Skyray")
         return {"FINISHED"}
 
 
-class ART3D_OT_dev_connect(bpy.types.Operator):
-    bl_idname = "art3d.dev_connect"
+class SKYRAY_OT_dev_connect(bpy.types.Operator):
+    bl_idname = "skyray.dev_connect"
     bl_label = "Dev: connect without browser"
     bl_description = "Local development server only: connects to its dev account without the approval page"
 
@@ -109,8 +109,8 @@ class ART3D_OT_dev_connect(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ART3D_OT_open_preferences(bpy.types.Operator):
-    bl_idname = "art3d.open_preferences"
+class SKYRAY_OT_open_preferences(bpy.types.Operator):
+    bl_idname = "skyray.open_preferences"
     bl_label = "Open Preferences"
     bl_description = "Opens Preferences at System, where Online Access is turned on"
 

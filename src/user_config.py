@@ -10,7 +10,7 @@ import os
 import sys
 import tempfile
 
-_FOLDER = "art3d"
+_FOLDER = "skyray"
 
 
 def folder() -> str:

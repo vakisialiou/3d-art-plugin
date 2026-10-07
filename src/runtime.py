@@ -37,7 +37,7 @@ def register() -> None:
     _connection = Connection(bpy.app.version_string)
     _server_url, _credentials_mtime, _credentials_checked, _opened_code, _shown = None, None, 0.0, "", None
     status.set_current(status.Status())
-    bpy.types.WindowManager.art3d_redraw = bpy.props.IntProperty(options={"HIDDEN"}, update=_redrawn)
+    bpy.types.WindowManager.skyray_redraw = bpy.props.IntProperty(options={"HIDDEN"}, update=_redrawn)
     for handlers, handler in _handlers():
         handlers.append(handler)
     link_journal.started()
@@ -55,7 +55,7 @@ def unregister() -> None:
     if _connection is not None:
         _connection.stop(leave=True)
         _connection = None
-    del bpy.types.WindowManager.art3d_redraw
+    del bpy.types.WindowManager.skyray_redraw
 
 
 def refresh() -> None:
@@ -70,7 +70,7 @@ def request_redraw() -> None:
     """Redraws every region now (a running Send's progress); see _redraw_if_changed."""
     window_manager = bpy.context.window_manager
     if window_manager is not None:
-        window_manager.art3d_redraw = (window_manager.art3d_redraw + 1) % 1_000_000
+        window_manager.skyray_redraw = (window_manager.skyray_redraw + 1) % 1_000_000
 
 
 def network_allowed(server_url: str) -> bool:
@@ -80,12 +80,12 @@ def network_allowed(server_url: str) -> bool:
 
 def open_url(url: str) -> None:
     if bpy.app.background:
-        print(f"3D Art: open {url}")
+        print(f"Skyray: open {url}")
         return
     try:
         bpy.ops.wm.url_open(url=url)
     except RuntimeError as error:
-        print(f"3D Art: couldn't open {url}: {error}")
+        print(f"Skyray: couldn't open {url}: {error}")
 
 
 def _tick() -> float:
@@ -109,7 +109,7 @@ def _update() -> None:
         _connection.start()
 
     current = status.evaluate(
-        _connection.snapshot(), online, bound_id, scene.art3d_project_name if scene else ""
+        _connection.snapshot(), online, bound_id, scene.skyray_project_name if scene else ""
     )
     status.set_current(current)
     _open_pairing_link(current)
@@ -156,12 +156,12 @@ def _open_pairing_link(current: status.Status) -> None:
 def _cache_project_name(scene: Optional[bpy.types.Scene], current: status.Status) -> None:
     if scene is None or not current.project_id or not current.project_name:
         return
-    if scene.art3d_project_name == current.project_name:
+    if scene.skyray_project_name == current.project_name:
         return
     if project.scene_project_id(scene)[:_ID_MAX] != current.project_id:
         return
     try:
-        scene.art3d_project_name = current.project_name
+        scene.skyray_project_name = current.project_name
     except (AttributeError, RuntimeError, TypeError):
         pass  # a linked scene is read-only
 
@@ -169,7 +169,7 @@ def _cache_project_name(scene: Optional[bpy.types.Scene], current: status.Status
 def _redraw_if_changed(current: status.Status) -> None:
     """The status bar is a global area Python can't reach, and a timer has no
     region to tag; writing an ID property that has an update callback sends
-    NC_WINDOW, which redraws every region — the status bar and the 3D Art
+    NC_WINDOW, which redraws every region — the status bar and the Skyray
     panel included. Only when what the UI shows changed.
     """
     global _shown
@@ -179,7 +179,7 @@ def _redraw_if_changed(current: status.Status) -> None:
     _shown = key
     window_manager = bpy.context.window_manager
     if window_manager is not None:
-        window_manager.art3d_redraw = (window_manager.art3d_redraw + 1) % 1_000_000
+        window_manager.skyray_redraw = (window_manager.skyray_redraw + 1) % 1_000_000
 
 
 def _redrawn(_self, _context) -> None:

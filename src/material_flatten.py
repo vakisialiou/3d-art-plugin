@@ -23,7 +23,7 @@ from .shader_bake import (
     new_bake_image,
 )
 
-_BAKE_IMAGE_PREFIX = "__art3d_flatten"
+_BAKE_IMAGE_PREFIX = "__skyray_flatten"
 
 
 def _needs_flatten(material: Optional[bpy.types.Material]) -> bool:

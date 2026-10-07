@@ -1,5 +1,5 @@
 """Turns one object's GLTF_SEPARATE export into what a Send uploads: a glb
-whose images name their textures as `art3d:<key>` URIs instead of carrying
+whose images name their textures as `skyray:<key>` URIs instead of carrying
 them, the texture blobs themselves (keyed by content, so a texture used by
 many objects travels once), and the list of keys the glb names.
 
@@ -16,7 +16,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional
 
-_ART3D_SCHEME = "art3d:"
+_SKYRAY_SCHEME = "skyray:"
 _MESHOPT = "EXT_meshopt_compression"
 _MIME_BY_EXT = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 
@@ -58,7 +58,7 @@ def pack_separate(directory: str, gltf_name: str, edit_json=None) -> Pack:
     textures: dict = {}
     for image in gltf.get("images", []):
         uri = image.get("uri")
-        if not isinstance(uri, str) or uri.startswith(_ART3D_SCHEME):
+        if not isinstance(uri, str) or uri.startswith(_SKYRAY_SCHEME):
             continue
         with open(os.path.join(directory, uri), "rb") as handle:
             data = handle.read()
@@ -66,7 +66,7 @@ def pack_separate(directory: str, gltf_name: str, edit_json=None) -> Pack:
         key = content_key("t", data)
         width, height = image_size(data)
         textures.setdefault(key, Texture(key, mime, data, width, height))
-        image["uri"] = _ART3D_SCHEME + key
+        image["uri"] = _SKYRAY_SCHEME + key
         image["mimeType"] = mime
 
     binary = _move_bin_buffer_first(gltf, directory)

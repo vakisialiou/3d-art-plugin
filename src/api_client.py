@@ -1,4 +1,4 @@
-"""JSON (and raw blobs) over HTTP to the 3D Art server, stdlib only (Blender's Python has no
+"""JSON (and raw blobs) over HTTP to the Skyray server, stdlib only (Blender's Python has no
 requests/socketio). No bpy here: the connection worker thread calls it.
 """
 
@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from .constants import PLUGIN_VERSION
 
-_USER_AGENT = f"art3d-blender/{PLUGIN_VERSION}"
+_USER_AGENT = f"skyray-blender/{PLUGIN_VERSION}"
 
 _ssl_context: Optional[ssl.SSLContext] = None
 

@@ -1,18 +1,21 @@
 import bpy
 
 from . import connection_ui, send_job, send_ui, status
-from .icons import dot
+from .icons import dot, logo
 
 
-class ART3D_PT_main_panel(bpy.types.Panel):
-    """The 3D Art tab of the 3D Viewport's sidebar: the step the scene is
+class SKYRAY_PT_main_panel(bpy.types.Panel):
+    """The Skyray tab of the 3D Viewport's sidebar: the step the scene is
     missing (or its project), then what it can send, one row per channel."""
 
-    bl_idname = "ART3D_PT_main_panel"
-    bl_label = "3D Art"
+    bl_idname = "SKYRAY_PT_main_panel"
+    bl_label = "Skyray"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "3D Art"
+    bl_category = "Skyray"
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=logo())
 
     def draw_header_preset(self, context):
         color, word = connection_ui.state_dot(status.current(), context.scene)

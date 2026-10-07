@@ -1,4 +1,4 @@
-"""The send half of the 3D Art panel: Selected/All, one row per channel
+"""The send half of the Skyray panel: Selected/All, one row per channel
 (what the scene has, how its Send is going, its own button), the progress
 of a running Send, the after-send report and the Web Optimization section.
 """
@@ -12,12 +12,12 @@ from .world_hdri_sync import describe_world_hdri_source, hdri_problem
 from .world_sync import find_world_sky
 
 _ROWS = {
-    "objects": ("Objects", "OBJECT_DATA", "art3d.send_scene"),
-    "lights": ("Lights", "LIGHT", "art3d.send_lighting"),
-    "camera": ("Camera", "CAMERA_DATA", "art3d.send_camera"),
-    "sky": ("Sky", "WORLD", "art3d.send_world"),
-    "hdri": ("HDRI", "IMAGE_DATA", "art3d.send_world_hdri"),
-    "render": ("Render", "SCENE", "art3d.send_render_settings"),
+    "objects": ("Objects", "OBJECT_DATA", "skyray.send_scene"),
+    "lights": ("Lights", "LIGHT", "skyray.send_lighting"),
+    "camera": ("Camera", "CAMERA_DATA", "skyray.send_camera"),
+    "sky": ("Sky", "WORLD", "skyray.send_world"),
+    "hdri": ("HDRI", "IMAGE_DATA", "skyray.send_world_hdri"),
+    "render": ("Render", "SCENE", "skyray.send_render_settings"),
 }
 _SKY_NAMES = {
     "SINGLE_SCATTERING": "Single scattering",
@@ -33,13 +33,13 @@ _summary_cache: dict = {}
 
 def _summary(context) -> dict:
     scene = context.scene
-    settings = scene.art3d_web
-    cache_key = (scene.name_full, scene.art3d_scope, settings.skip_hidden)
+    settings = scene.skyray_web
+    cache_key = (scene.name_full, scene.skyray_scope, settings.skip_hidden)
     cached = _summary_cache.get(cache_key)
     now = time.monotonic()
     if cached is not None and now - cached[0] < _SUMMARY_TTL_S:
         return cached[1]
-    found = scene_graph.summary(scene, context.view_layer, scene.art3d_scope, settings.skip_hidden)
+    found = scene_graph.summary(scene, context.view_layer, scene.skyray_scope, settings.skip_hidden)
     found["sky"] = _sky_text(scene)
     found["hdri"] = describe_world_hdri_source(context) or "None"
     found["hdri_problem"] = hdri_problem(scene)
@@ -72,7 +72,7 @@ def _info(channel: str, found: dict) -> str:
 def draw_scope(layout, context, enabled: bool) -> None:
     row = layout.row()
     row.enabled = enabled
-    row.prop(context.scene, "art3d_scope", expand=True)
+    row.prop(context.scene, "skyray_scope", expand=True)
 
 
 def draw_rows(layout, context, enabled: bool) -> None:
@@ -152,11 +152,11 @@ def draw_progress(layout, job) -> None:
     row.progress(factor=fraction, type="BAR", text=f"{round(fraction * 100)}% · {job.stage}")
     if job.paused:
         alert(layout, job.paused, icon="PAUSE")
-    layout.operator("art3d.cancel_send", text="Cancel", icon="X")
+    layout.operator("skyray.cancel_send", text="Cancel", icon="X")
 
 
 def draw_send_all(layout, enabled: bool) -> None:
-    primary(layout, "art3d.send_all", "Send All", "EXPORT", enabled=enabled)
+    primary(layout, "skyray.send_all", "Send All", "EXPORT", enabled=enabled)
 
 
 def draw_report(layout, context) -> None:
@@ -195,11 +195,11 @@ def draw_report(layout, context) -> None:
 
 
 def draw_web_settings(layout, context) -> None:
-    header, body = layout.panel("art3d_web_optimization", default_closed=True)
+    header, body = layout.panel("skyray_web_optimization", default_closed=True)
     header.label(text="Web Optimization")
     if body is None:
         return
-    settings = context.scene.art3d_web
+    settings = context.scene.skyray_web
     column = body.column()
     column.use_property_split = True
     column.use_property_decorate = False
@@ -221,5 +221,5 @@ def draw_web_settings(layout, context) -> None:
         hint = body.box()
         hint.label(text="Bakes run on the CPU", icon="INFO")
         wrap(hint, context, f"Enable {gpu} in Preferences › System for faster Sends.", icon="BLANK1")
-        hint.operator("art3d.open_preferences", text="Open Preferences", icon="PREFERENCES")
-    body.operator("art3d.resend_all", icon="FILE_REFRESH")
+        hint.operator("skyray.open_preferences", text="Open Preferences", icon="PREFERENCES")
+    body.operator("skyray.resend_all", icon="FILE_REFRESH")

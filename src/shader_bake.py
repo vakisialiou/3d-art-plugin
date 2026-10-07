@@ -29,7 +29,7 @@ _MAX_SAMPLED_TRIANGLES = 50_000
 
 # Marks the images new_bake_image() creates, so cleanup removes only those: a
 # material.copy() shares the user's own Image datablocks, it doesn't copy them.
-_BAKE_IMAGE_TAG = "art3d_bake"
+_BAKE_IMAGE_TAG = "skyray_bake"
 
 
 def find_active_output(node_tree: bpy.types.NodeTree, bl_idname: str) -> Optional[bpy.types.Node]:

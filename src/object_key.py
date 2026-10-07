@@ -111,7 +111,7 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
     if obj.type not in MESH_CONVERTIBLE_TYPES:
         return None
     digest = hashlib.sha256()
-    _text(digest, f"art3d-glb/{EXPORT_VERSION}/{signature}/{obj.type}")
+    _text(digest, f"skyray-glb/{EXPORT_VERSION}/{signature}/{obj.type}")
     info = Info(key="")
     with _rest_shape(obj, depsgraph):
         evaluated = obj.evaluated_get(depsgraph)
@@ -149,7 +149,7 @@ def geometry_info(mesh, materials: list, owner: bpy.types.Object, part: str, sig
     """The key and stats of a mesh geometry nodes made (an instance set's
     `part` of `owner`), exported with `materials` (instance_sets.py)."""
     digest = hashlib.sha256()
-    _text(digest, f"art3d-glb/{EXPORT_VERSION}/{signature}/node-geometry")
+    _text(digest, f"skyray-glb/{EXPORT_VERSION}/{signature}/node-geometry")
     info = Info(key="")
     _hash_mesh(digest, mesh, owner, info, f"{owner.name_full}/{part}")
     seen: set = set()

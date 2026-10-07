@@ -11,7 +11,7 @@ import bpy
 
 from . import link_journal
 
-_ID_PROP = "art3d_id"
+_ID_PROP = "skyray_id"
 # session_uid → the id this session resolved for that object. Blender never
 # reuses a session_uid within a process, so a closed file's entries never match.
 _session_ids: dict = {}
@@ -22,7 +22,7 @@ def resolve_stable_ids(objects: list) -> dict:
     missing.
 
     Blender copies custom properties verbatim on duplicate/paste/append, so a
-    duplicate can carry its original's art3d_id. All holders of an id are
+    duplicate can carry its original's skyray_id. All holders of an id are
     resolved together: the one this session already resolved under it keeps
     it, else the name that sorts first (Blender suffixes the duplicate's
     name, .001 etc., never the original's); the rest get fresh ids —

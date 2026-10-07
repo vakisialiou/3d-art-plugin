@@ -1,4 +1,4 @@
-"""Small layout helpers the 3D Art panel, popover and header share: wrapped
+"""Small layout helpers the Skyray panel, popover and header share: wrapped
 helper text (Blender labels never wrap), secondary notes, the blue primary
 button, alerts, spinners."""
 

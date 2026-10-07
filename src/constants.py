@@ -1,7 +1,7 @@
 from . import bl_info
 
-# The server when neither ART3D_SERVER_URL nor the developer preference names
-# another one (3d-art-api's default port).
+# The server when neither SKYRAY_SERVER_URL nor the developer preference names
+# another one (skyray-api's default port).
 DEFAULT_SERVER_URL = "http://localhost:3500"
 
 # The editor↔server contract version: a server on another version answers
