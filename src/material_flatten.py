@@ -190,9 +190,11 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object, created: list) ->
             # Transient copy, in the slot only so the bake targets it; removed
             # after baking (its images live on in the synthetic material).
             # Tracked until then, so a failed bake still frees its images.
+            # slot.material follows the slot's link (mesh or object), as
+            # the bake and the exporter do.
             bake_source = slot.material.copy()
             created.append(bake_source)
-            duplicate.data.materials[index] = bake_source
+            slot.material = bake_source
             duplicate.active_material_index = index
 
             prefix = f"{_BAKE_IMAGE_PREFIX}_{index}"
@@ -217,6 +219,6 @@ def flatten_incompatible_surfaces(duplicate: bpy.types.Object, created: list) ->
             _build_flat_principled(new_material, base_color, roughness, normal, emission, metallic)
             created.remove(bake_source)
             bpy.data.materials.remove(bake_source)
-            duplicate.data.materials[index] = new_material
+            slot.material = new_material
     finally:
         duplicate.active_material_index = original_active_index

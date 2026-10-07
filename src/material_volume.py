@@ -282,7 +282,9 @@ def approximate_volume_materials(duplicate: bpy.types.Object, created: list) -> 
 
         new_material = slot.material.copy()
         created.append(new_material)
-        duplicate.data.materials[index] = new_material
+        # Follows the slot's link (mesh or object), as the bake and the
+        # exporter do.
+        slot.material = new_material
         duplicate.active_material_index = index
 
         image_prefix = f"{_BAKE_IMAGE_PREFIX}_{index}"

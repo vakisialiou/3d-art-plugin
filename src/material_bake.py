@@ -434,7 +434,9 @@ def bake_procedural_channels(duplicate: bpy.types.Object, created: list) -> None
 
             new_material = slot.material.copy()
             created.append(new_material)
-            duplicate.data.materials[index] = new_material
+            # Follows the slot's link (mesh or object), as the bake and
+            # the exporter do.
+            slot.material = new_material
             duplicate.active_material_index = index
             principled = find_principled_surface(new_material)
             coat_bakes = _coat_bakes(new_material)
