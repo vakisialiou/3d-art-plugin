@@ -1,3 +1,5 @@
+![Skyray](docs/img/readme-banner.png)
+
 # 🧩 skyray-plugin
 
 Аддон Blender `skyray` проекта [skyray](../README.md) — читает текущую сцену и отправляет её через [skyray-api](../skyray-api) (обычный HTTP) в открытый проект [skyray-web](../skyray-web) для живого превью. Собран под Blender 5.2.1, только стандартная библиотека Python (`urllib`) — pip внутри Blender не нужен.
