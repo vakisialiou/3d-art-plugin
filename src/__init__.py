@@ -1,7 +1,7 @@
 bl_info = {
     "name": "3D Art Sync",
     "author": "3d-art",
-    "version": (0, 3, 3),
+    "version": (0, 4, 0),
     "blender": (5, 2, 1),
     "location": "View3D > Sidebar > 3D Art",
     "description": "Sends the current scene to your 3D Art account for live preview in the browser",

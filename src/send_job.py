@@ -6,8 +6,9 @@ temporary data. Uploads go to the uploader thread (uploader.py).
 
 Order: the small channels first (render settings, sky, cameras, lights),
 then the HDRI, then objects. For objects the job hashes each one's export
-inputs (object_key.py), asks the open browsers which glbs they lack, and
-bakes + exports only those; copies of one mesh share one export.
+inputs (object_key.py), asks the open browsers which glbs and instance-set
+placements they lack, and bakes + exports only those; copies of one mesh
+share one export.
 
 The job pauses outside Object Mode and when its scene isn't the window's;
 Cancel stops it after the current step (what already went stays in the
@@ -21,7 +22,19 @@ from typing import Callable, Optional
 
 import bpy
 
-from . import bake_device, export_cache, mesh_memory, object_key, project, runtime, scene_graph, send_channels, status, web_settings
+from . import (
+    bake_device,
+    export_cache,
+    instance_sets,
+    mesh_memory,
+    object_key,
+    project,
+    runtime,
+    scene_graph,
+    send_channels,
+    status,
+    web_settings,
+)
 from .gltf_exporter import export_object
 from .resource_pack import content_key, gpu_bytes
 from .sent_ids import get_previous_sent_ids, set_sent_ids
@@ -347,34 +360,36 @@ class SendJob:
         yield
 
     def _objects(self):
-        plan = scene_graph.plan(self.scene, self.view_layer, self.scope, self.settings.skip_hidden)
+        signature = self.settings.signature()
+        plan = self._in_window(
+            lambda: scene_graph.plan(self.scene, self.view_layer, self.scope, self.settings.skip_hidden, signature)
+        )
         if not plan.entries and not plan.deletions:
             reason = "Nothing selected" if self.scope == "SELECTED" else "The scene is empty"
             self.rows["objects"] = Row(state="skipped", note=reason)
             return
         self._objects_total = len(plan.entries)
         self.rows["objects"] = Row(state="working", total=self._objects_total)
-        signature = self.settings.signature()
         infos: dict = {}
+        by_source: dict = {}  # copies and sets of one source hash it once
         for entry in plan.entries:
             if entry.exports:
-                self.stage = f"Checking {entry.obj.name}"
+                self.stage = f"Checking {entry.name or entry.obj.name}"
                 yield self._unpaused
-                info = self._in_window(
-                    lambda: object_key.compute(entry.obj, bpy.context.evaluated_depsgraph_get(), signature)
-                )
+                info = self._in_window(lambda: _key(entry, by_source, signature))
                 if info is not None:
                     infos[entry.id] = info
-                    self._count(info)
+                    self._count(info, entry.placements.count if entry.placements else 1)
             self._hashed += 1
             yield
 
         keys = sorted({info.key for info in infos.values()})
-        if self.force or not keys:
-            missing = set(keys)
+        placements = sorted({entry.placements.key for entry in plan.entries if entry.placements is not None})
+        if self.force or not (keys or placements):
+            missing = set(keys) | set(placements)
         else:
             self.stage = "Asking the browser what it already has…"
-            answer = self.uploader.missing(keys)
+            answer = self.uploader.missing(keys + placements)
             yield lambda: answer.done
             if answer.error:
                 raise _Stop(answer.error)
@@ -386,15 +401,19 @@ class SendJob:
             if info is not None and info.key in missing:
                 pack = None if self.force else export_cache.get(info.key)
                 if pack is None:
-                    self.stage = f"Baking and exporting {entry.obj.name}"
+                    self.stage = f"Baking and exporting {entry.name or entry.obj.name}"
                     yield self._unpaused
-                    pack = self._heavy(lambda: export_object(entry.obj, self.settings, info.surface_area))
+                    pack = self._heavy(lambda: _export(entry, self.settings, info.surface_area))
                     export_cache.put(info.key, pack)
                     self._stats["exported"] += 1
                 missing.discard(info.key)  # a copy later in the plan reuses this upload
                 self._stats["texture_bytes"] += gpu_bytes(pack)
             elif info is not None:
                 self._stats["unchanged"] += 1
+            if entry.placements is not None and entry.placements.key in missing:
+                blob = entry.placements
+                self.uploader.blob(blob.key, "placements", "application/octet-stream", blob.data, "placements", "gzip")
+                missing.discard(blob.key)
             self.uploader.object(
                 scene_graph.entry_payload(entry, info.key if info else None),
                 "objects",
@@ -417,11 +436,34 @@ class SendJob:
             {entry.id for entry in plan.entries},
         )
 
-    def _count(self, info: object_key.Info) -> None:
+    def _count(self, info: object_key.Info, copies: int) -> None:
+        """`info`'s mesh drawn `copies` times (a set's placements), its materials once each."""
         stats = self._stats
         stats["materials"].update(name for name in info.materials if name)
-        stats["triangles"] += info.triangles
+        stats["triangles"] += info.triangles * copies
         stats["draw_calls"] += max(1, info.draw_calls)
+
+
+def _key(entry: scene_graph.Entry, by_source: dict, signature: str) -> Optional[object_key.Info]:
+    """`entry`'s glb key: its object's, a copy's or a set's source's (each
+    source hashed once a Send), or a node-made mesh's (hashed while planning)."""
+    group = entry.group
+    if group is not None and group.source is None:
+        return group.info
+    obj = group.source if group is not None else entry.obj
+    if obj.name_full not in by_source:
+        by_source[obj.name_full] = object_key.compute(obj, bpy.context.evaluated_depsgraph_get(), signature)
+    return by_source[obj.name_full]
+
+
+def _export(entry: scene_graph.Entry, settings, surface_area: float):
+    """`entry`'s glb: its object's, its set's source's, or a node-made mesh's."""
+    group = entry.group
+    if group is None:
+        return export_object(entry.obj, settings, surface_area)
+    if group.source is not None:
+        return export_object(group.source, settings, surface_area)
+    return instance_sets.export_mesh(entry.obj, group, lambda temporary: export_object(temporary, settings, surface_area))
 
 
 def _summary(objects: int, materials: int, rows: dict) -> str:

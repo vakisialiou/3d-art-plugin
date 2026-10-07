@@ -10,6 +10,10 @@ WebP or PNG, meshopt-compressed geometry, packed by resource_pack.py into a
 glb that names its textures by key. export_object_glb() is the same pipeline
 as one self-contained, lossless glb, for tools (the material fidelity suite
 judges the bakes, not the transport).
+
+An object's glb holds its own geometry only: geometry-nodes and particle
+instances travel as instance sets (instance_sets.py), each exporting its
+source on its own.
 """
 
 import os
@@ -50,16 +54,14 @@ _COMMON = {
     "export_apply": True,
     "export_yup": False,
     # Only the armature's assigned action; the default ACTIONS mode also
-    # pulls in any bone-compatible action in the file.
+    # pulls in any bone-compatible action in the file. This mode merges what
+    # it exports into one animation, named after the action (_clip_name).
     "export_animations": True,
     "export_animation_mode": "ACTIVE_ACTIONS",
     # Only the color attributes a material reads.
     "export_all_vertex_colors": False,
-    # Geometry-nodes instances (scattered plants, rocks) as GPU instances:
-    # each source mesh once plus a transform per instance, an InstancedMesh
-    # per source in the browser. Their source materials export as they are.
-    "export_gn_mesh": True,
-    "export_gpu_instances": True,
+    # Geometry-nodes and particle instances stay out: they go as instance sets.
+    "export_gn_mesh": False,
 }
 
 
@@ -74,9 +76,22 @@ def _format_options(settings: Snapshot, animated: bool = False) -> dict:
     }
 
 
-def _animated(obj: bpy.types.Object) -> bool:
+def _action(obj: bpy.types.Object) -> Optional[bpy.types.Action]:
+    """The action `obj`'s armature plays, the one the export carries."""
     armature = _find_armature_target(obj)
-    return armature is not None and armature.animation_data is not None and armature.animation_data.action is not None
+    if armature is None or armature.animation_data is None:
+        return None
+    return armature.animation_data.action
+
+
+def _animated(obj: bpy.types.Object) -> bool:
+    return _action(obj) is not None
+
+
+def _clip_name(obj: bpy.types.Object) -> dict:
+    """The exported animation takes its action's name ("Animation" otherwise)."""
+    action = _action(obj)
+    return {"export_nla_strips_merged_animation_name": action.name} if action is not None else {}
 
 
 def export_object(obj: bpy.types.Object, settings: Snapshot, surface_area: float = 0.0) -> Pack:
@@ -87,6 +102,7 @@ def export_object(obj: bpy.types.Object, settings: Snapshot, surface_area: float
                 filepath=os.path.join(tmp_dir, "object.gltf"),
                 export_format="GLTF_SEPARATE",
                 **_COMMON,
+                **_clip_name(obj),
                 **_format_options(settings, _animated(obj)),
             )
             return pack_separate(tmp_dir, "object.gltf", lambda gltf: apply_coat_extras(gltf, coat_extras))
@@ -102,6 +118,7 @@ def export_object_glb(obj: bpy.types.Object, settings: Optional[Snapshot] = None
                 filepath=glb_path,
                 export_format="GLB",
                 **_COMMON,
+                **_clip_name(obj),
                 **_format_options(settings, _animated(obj)),
             )
             with open(glb_path, "rb") as glb_file:

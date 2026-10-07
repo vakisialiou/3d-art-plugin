@@ -11,8 +11,14 @@ hashed (mesh_memory.py), as evaluation isn't bit-stable.
 Over-inclusion only costs a re-export; a missed input would leave a stale
 object in the browser, which is why "Resend Everything" exists.
 
-Geometry-nodes instances count too: each source mesh and its materials,
-every instance's matrix (gltf_exporter sends them as GPU instances).
+A skinned mesh is hashed in its rest shape, as the exporter exports it, and
+by its rig's bones and action, never the armature object's name or place:
+characters sharing a rig and an action share a key whatever frame is showing.
+Geometry nodes count by what they make — the evaluated mesh and the
+materials it carries —, not by their tree: a scatter tweak that leaves the
+object's own geometry alone keeps its key. Their instances, and particles
+drawn as objects, travel as instance sets (instance_sets.py), whose node-made
+meshes geometry_info() keys.
 
 The same pass counts what the report shows: triangles, draw calls (one per
 material used), world-space surface area (By Object Size bakes).
@@ -21,6 +27,7 @@ material used), world-space surface area (By Object Size bakes).
 import hashlib
 import os
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -59,6 +66,9 @@ _MODIFIER_SKIP = _ID_SKIP | {
     "open_adaptive_subdivision_panel", "open_advanced_panel", "panels", "node_warnings",
     "info", "active_particle_target_index",
 }
+# An Armature modifier's rig is hashed by _hash_rig (bones, action): the
+# export resets the armature object, so its name and place don't count.
+_MODIFIER_SKIP_BY_TYPE = {"ARMATURE": _MODIFIER_SKIP | {"object"}}
 _MAX_ITEMS = 512
 
 # Packed image bytes hashed once a session: (name, size) → digest.
@@ -103,18 +113,27 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
     digest = hashlib.sha256()
     _text(digest, f"art3d-glb/{EXPORT_VERSION}/{signature}/{obj.type}")
     info = Info(key="")
-    evaluated = obj.evaluated_get(depsgraph)
-    mesh = evaluated.to_mesh()
-    try:
-        _hash_mesh(digest, mesh, obj, info)
-    finally:
-        evaluated.to_mesh_clear()
+    with _rest_shape(obj, depsgraph):
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            _hash_mesh(digest, mesh, obj, info)
+            made = [material.original if material else None for material in mesh.materials] if mesh else []
+        finally:
+            evaluated.to_mesh_clear()
     seen: set = set()
-    if any(modifier.type == "NODES" for modifier in obj.modifiers):
-        _hash_instances(digest, obj, depsgraph, info, seen)
+    nodes = False
     for modifier in obj.modifiers:
         _text(digest, f"modifier:{modifier.type}")
-        _hash_rna(digest, modifier, _MODIFIER_SKIP, 1, set())
+        if modifier.type == "NODES":
+            nodes = True
+            continue
+        _hash_rna(digest, modifier, _MODIFIER_SKIP_BY_TYPE.get(modifier.type, _MODIFIER_SKIP), 1, set())
+    if nodes:
+        # What geometry nodes make is the evaluated mesh, hashed above, and
+        # the materials it sets; their instances travel as sets.
+        for material in made:
+            _hash_material(digest, material, seen)
     for slot in obj.material_slots:
         material = slot.material
         info.materials.append(material.name_full if material else "")
@@ -126,43 +145,42 @@ def compute(obj: bpy.types.Object, depsgraph, signature: str) -> Optional[Info]:
     return info
 
 
-def _hash_instances(digest, obj: bpy.types.Object, depsgraph, info: Info, seen: set) -> None:
-    """Geometry-nodes instances, which export as GPU instances: each source's
-    evaluated mesh and materials once, every instance's matrix relative to
-    `obj` (moving `obj` itself doesn't change its glb)."""
-    to_local = obj.matrix_world.inverted()
-    counts: dict = {}
-    matrices = []
-    for instance in depsgraph.object_instances:
-        if not instance.is_instance or instance.parent is None or instance.parent.original != obj:
-            continue
-        source = instance.object.original  # the instance itself is valid only while iterating
-        name = source.name_full
-        if name not in counts:
-            counts[name] = [source, 0]
-        counts[name][1] += 1
-        matrices.append((name, to_local @ instance.matrix_world))
-    for name in sorted(counts):
-        source, count = counts[name]
-        _text(digest, f"instance-source:{name}:{count}")
-        part = Info(key="")
-        evaluated = source.evaluated_get(depsgraph)
-        mesh = evaluated.to_mesh()
-        try:
-            _hash_mesh(digest, mesh, source, part)
-        finally:
-            evaluated.to_mesh_clear()
-        for slot in source.material_slots:
-            _hash_material(digest, slot.material, seen)
-        info.triangles += part.triangles * count
-        info.draw_calls += part.draw_calls
-        info.surface_area += part.surface_area * count
-    for name, matrix in matrices:
-        _text(digest, name)
-        digest.update(np.array(matrix, dtype=np.float32).tobytes())
+def geometry_info(mesh, materials: list, owner: bpy.types.Object, part: str, signature: str) -> Info:
+    """The key and stats of a mesh geometry nodes made (an instance set's
+    `part` of `owner`), exported with `materials` (instance_sets.py)."""
+    digest = hashlib.sha256()
+    _text(digest, f"art3d-glb/{EXPORT_VERSION}/{signature}/node-geometry")
+    info = Info(key="")
+    _hash_mesh(digest, mesh, owner, info, f"{owner.name_full}/{part}")
+    seen: set = set()
+    for material in materials:
+        info.materials.append(material.name_full if material else "")
+        _hash_material(digest, material, seen)
+    info.key = "g:" + digest.hexdigest()[:32]
+    return info
 
 
-def _hash_mesh(digest, mesh, obj: bpy.types.Object, info: Info) -> None:
+@contextmanager
+def _rest_shape(obj: bpy.types.Object, depsgraph):
+    """Evaluates `obj` without its Armature modifiers, as the exporter
+    exports a skinned mesh (its rest shape, the pose left to the skin), so
+    the key doesn't follow the frame showing."""
+    posing = [modifier for modifier in obj.modifiers if modifier.type == "ARMATURE" and modifier.show_viewport]
+    if not posing:
+        yield
+        return
+    for modifier in posing:
+        modifier.show_viewport = False
+    depsgraph.update()
+    try:
+        yield
+    finally:
+        for modifier in posing:
+            modifier.show_viewport = True
+        depsgraph.update()
+
+
+def _hash_mesh(digest, mesh, obj: bpy.types.Object, info: Info, owner: str = "") -> None:
     if mesh is None or len(mesh.vertices) == 0:
         _text(digest, "empty")
         return
@@ -199,7 +217,7 @@ def _hash_mesh(digest, mesh, obj: bpy.types.Object, info: Info) -> None:
             )
         )
     if obj.modifiers:  # a plain mesh is its own data, bit for bit
-        parts = mesh_memory.recall(parts, obj.name_full)
+        parts = mesh_memory.recall(parts, owner or obj.name_full)
     for part in parts:
         digest.update(part if isinstance(part, bytes) else part.tobytes())
 

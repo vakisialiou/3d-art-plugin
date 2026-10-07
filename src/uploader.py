@@ -73,9 +73,9 @@ class Uploader:
     def sync(self, event: str, payload: dict, tag: str) -> None:
         self._push(_Task("sync", tag=tag, event=event, payload=payload))
 
-    def blob(self, key: str, kind: str, mime: str, data: bytes, tag: str) -> None:
-        """One blob on its own (an HDRI), uploaded unless sent already this Send."""
-        self._push(_Task("blob", tag=tag, glb_key=key, event=kind, payload=(mime, data)))
+    def blob(self, key: str, kind: str, mime: str, data: bytes, tag: str, encoding: str = "") -> None:
+        """One blob on its own (an HDRI, a set's placements), uploaded unless sent already this Send."""
+        self._push(_Task("blob", tag=tag, glb_key=key, event=kind, payload=(mime, data, encoding)))
 
     def object(self, entry: dict, tag: str, glb_key: str = "", pack=None) -> None:
         """One object entry; with `pack`, its textures (those the browser lacks) and glb go first."""
@@ -155,8 +155,8 @@ class Uploader:
             return
         if first.kind == "blob":
             if first.glb_key not in self._uploaded:
-                mime, data = first.payload
-                self._post_blob(first.glb_key, first.event, mime, data)
+                mime, data, encoding = first.payload
+                self._post_blob(first.glb_key, first.event, mime, data, encoding=encoding)
                 self._uploaded.add(first.glb_key)
             return
         for task in batch:
