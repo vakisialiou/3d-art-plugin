@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Skyray",
     "author": "Skyray",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (5, 2, 1),
     "location": "View3D > Sidebar > Skyray",
     "description": "Sends the current scene to your Skyray account for live preview in the browser",
@@ -44,6 +44,7 @@ _classes = (
     project_operators.SKYRAY_OT_refresh_projects,
     project_operators.SKYRAY_OT_new_project,
     project_operators.SKYRAY_OT_open_project,
+    project_operators.SKYRAY_OT_manage_storage,
     send_operators.SKYRAY_OT_send_all,
     send_operators.SKYRAY_OT_resend_all,
     send_operators.SKYRAY_OT_cancel_send,

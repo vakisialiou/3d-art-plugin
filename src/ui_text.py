@@ -85,5 +85,17 @@ def megabytes(count: int) -> str:
     return f"{value:.1f} MB" if value < 100 else f"{value:.0f} MB"
 
 
+def storage_size(count: int) -> str:
+    """The account's space as the web app says it: binary units, one decimal when it says something ("49.4 MB", "50 MB")."""
+    if count < 1024:
+        return f"{count} B"
+    value = count / 1024
+    for unit in ("KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.1f}".rstrip("0").rstrip(".") + f" {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
 def thousands(count: int) -> str:
     return f"{count / 1000:.0f}k" if count >= 10000 else f"{count:,}"

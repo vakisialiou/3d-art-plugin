@@ -6,9 +6,9 @@ temporary data. Uploads go to the uploader thread (uploader.py).
 
 Order: the small channels first (render settings, sky, cameras, lights),
 then the HDRI, then objects. For objects the job hashes each one's export
-inputs (object_key.py), asks the open browsers which glbs and instance-set
-placements they lack, and bakes + exports only those; copies of one mesh
-share one export.
+inputs (object_key.py), asks the account's store which glbs and
+instance-set placements it lacks, and bakes + exports only those; copies of
+one mesh share one export.
 
 The job pauses outside Object Mode and when its scene isn't the window's;
 Cancel stops it after the current step (what already went stays in the
@@ -38,7 +38,7 @@ from . import (
 from .gltf_exporter import export_object
 from .resource_pack import content_key, gpu_bytes
 from .sent_ids import get_previous_sent_ids, set_sent_ids
-from .uploader import Uploader
+from .uploader import StorageFull, Uploader
 from .world_hdri_sync import Unreadable, build_hdri_cached, describe_world_hdri_source
 
 # Rows of the panel, top to bottom.
@@ -76,6 +76,7 @@ class Report:
     exported: int = 0  # objects baked + exported this Send
     unchanged: int = 0  # objects the browser already had
     rows: dict = field(default_factory=dict)
+    storage_full: Optional[StorageFull] = None  # why it stopped, when the account's space refused a file
 
 
 class _Stop(Exception):
@@ -256,6 +257,7 @@ class SendJob:
             exported=stats["exported"],
             unchanged=stats["unchanged"],
             rows={channel: Row(row.state, row.done, row.total, row.note) for channel, row in self.rows.items()},
+            storage_full=self.uploader.storage_full if self.uploader else None,
         )
         _finished(self)
 

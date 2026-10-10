@@ -7,7 +7,8 @@ import time
 
 from . import bake_device, scene_graph, send_job
 from .send_job import CHANNELS, DRAW_CALL_WARNING
-from .ui_text import ago, alert, duration, megabytes, note, primary, thousands, wrap
+from .status import STORAGE_FULL_TEXT
+from .ui_text import ago, alert, duration, megabytes, note, primary, storage_size, thousands, wrap
 from .world_hdri_sync import describe_world_hdri_source, hdri_problem
 from .world_sync import find_world_sky
 
@@ -164,6 +165,9 @@ def draw_report(layout, context) -> None:
     if report is None:
         return
     now = time.time()
+    if report.storage_full is not None:
+        _draw_storage_full(layout, context, report.storage_full)
+        return
     if not report.ok:
         box = layout.box()
         alert(box, report.message)
@@ -192,6 +196,21 @@ def draw_report(layout, context) -> None:
     if report.texture_bytes:
         sent += f" · textures {megabytes(report.texture_bytes)} in GPU"
     note(column, sent, icon="BLANK1")
+
+
+def _draw_storage_full(layout, context, full) -> None:
+    """The account's space refused a file: what it needed, what is left, where to make room."""
+    box = layout.box()
+    alert(box, STORAGE_FULL_TEXT)
+    left = max(0, full.limit - full.used)
+    wrap(
+        box,
+        context,
+        f"This file needs {storage_size(full.size)}; {storage_size(left)} is left of {storage_size(full.limit)}.",
+        icon="BLANK1",
+    )
+    box.operator("skyray.manage_storage", icon="URL")
+    note(box, f"Storage {storage_size(full.used)} / {storage_size(full.limit)}", icon="BLANK1")
 
 
 def draw_web_settings(layout, context) -> None:

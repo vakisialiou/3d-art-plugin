@@ -33,6 +33,7 @@ NOT_FOUND_TEXT = "Project not found"
 NO_BROWSER_TEXT = "Browser not open"
 REVOKED_TEXT = "Device disconnected in the browser"
 NO_VIEWERS_TEXT = "Open the project in a browser first"
+STORAGE_FULL_TEXT = "Send stopped — storage full"
 
 ICONS = {
     NOT_CONNECTED: "UNLINKED",

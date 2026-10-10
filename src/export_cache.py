@@ -1,6 +1,7 @@
-"""Exports made this Blender session, by object key: a browser that lacks a
-glb this add-on already built (a second tab, a cleared site) gets it again
-without a second bake. Memory only, least recently used first out.
+"""Exports made this Blender session, by object key: a store that lacks a
+glb this add-on already built (its file went an hour after nothing held it —
+a review answered with Keep mine) gets it again without a second bake.
+Memory only, least recently used first out.
 """
 
 from collections import OrderedDict

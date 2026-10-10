@@ -82,6 +82,20 @@ class SKYRAY_OT_open_project(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class SKYRAY_OT_manage_storage(bpy.types.Operator):
+    bl_idname = "skyray.manage_storage"
+    bl_label = "Manage storage…"
+    bl_description = "Opens the account's storage in the Skyray web app: what takes the space, and the plan"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(status.current().web_url)
+
+    def execute(self, context):
+        runtime.open_url(f"{status.current().web_url}/?settings=storage")
+        return {"FINISHED"}
+
+
 def default_name(context) -> str:
     stem = os.path.splitext(bpy.path.basename(bpy.data.filepath))[0]
     return stem or context.scene.name or "Untitled"

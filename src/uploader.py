@@ -1,11 +1,12 @@
 """A Send's network side, on its own daemon thread (no bpy here): asks which
-blobs the open browsers lack, uploads the missing ones raw, and posts the
-sync messages that name them — strictly in the order the job queued them, so
-a blob always lands before the message naming it. Consecutive object entries
-go out as one `blender-sync` message.
+blobs the account's store lacks, uploads the missing ones raw into it, and
+posts the sync messages that name them — strictly in the order the job
+queued them, so a blob always lands before the message naming it.
+Consecutive object entries go out as one `blender-sync` message.
 
 The main thread only queues work and reads results (thread-safe); a failed
-request stops the send and keeps the first error for the panel.
+request stops the send and keeps the first error for the panel — a full
+storage with its numbers (`storage_full`).
 """
 
 import threading
@@ -31,6 +32,15 @@ class Answer:
     done: bool = False
     value: Any = None
     error: str = ""
+
+
+@dataclass
+class StorageFull:
+    """The account's space refused a file: what it needed and what was left."""
+
+    used: int
+    limit: int
+    size: int
 
 
 @dataclass
@@ -60,6 +70,7 @@ class Uploader:
         self._sent_tags: list = []  # tags whose message reached the server, in order
         self.bytes_sent = 0
         self.error = ""
+        self.storage_full: Optional[StorageFull] = None
         self._thread = threading.Thread(target=self._run, name="skyray-upload", daemon=True)
         self._thread.start()
 
@@ -78,7 +89,7 @@ class Uploader:
         self._push(_Task("blob", tag=tag, glb_key=key, event=kind, payload=(mime, data, encoding)))
 
     def object(self, entry: dict, tag: str, glb_key: str = "", pack=None) -> None:
-        """One object entry; with `pack`, its textures (those the browser lacks) and glb go first."""
+        """One object entry; with `pack`, its textures (those the store lacks) and glb go first."""
         self._push(_Task("object", tag=tag, entry=entry, glb_key=glb_key, pack=pack))
 
     def idle(self) -> bool:
@@ -244,9 +255,22 @@ class Uploader:
         if code == 409 and api_client.error_code(data) == "no_viewers":
             self._connection.note_viewers(self._session.generation, 0)
             raise _Failure(status.NO_VIEWERS_TEXT)
+        if code == 409 and api_client.error_code(data) == "storage_full":
+            numbers = data if isinstance(data, dict) else {}
+            with self._lock:
+                self.storage_full = StorageFull(
+                    used=_number(numbers.get("usedBytes")),
+                    limit=_number(numbers.get("limitBytes")),
+                    size=_number(numbers.get("sizeBytes")),
+                )
+            raise _Failure(status.STORAGE_FULL_TEXT)
         if code == 426:
             raise _Failure(status.OUTDATED_TEXT)
         raise _Failure(api_client.error_message(code, data))
+
+
+def _number(value: Any) -> int:
+    return value if isinstance(value, int) and value >= 0 else 0
 
 
 class _Failure(Exception):
